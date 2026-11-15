@@ -21,18 +21,21 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
 
 
 class DenseMatcher:
-    """Performs dense semantic vector similarity matching with zero-cost fallback."""
+    """Performs dense vector similarity retrieval using local Ollama neural embeddings,
+    or deterministic subword lexical hash projections as a zero-cost local retrieval fallback.
+    (Note: Lexical hash projections are token/subword approximations, not neural semantic embeddings).
+    """
 
     def __init__(self, fallback_dim: int = 256):
         self.fallback_dim = fallback_dim
 
     async def get_embedding(self, text: str) -> list[float]:
-        """Fetch dense embedding from local Ollama or compute deterministic semantic representation."""
+        """Fetch dense neural embedding from local Ollama or compute deterministic lexical hash projection."""
         clean = text.strip()
         if not clean:
             return [0.0] * self.fallback_dim
 
-        # 1. Try local Ollama embedding
+        # 1. Try local Ollama neural embedding
         try:
             emb = await ollama_client.get_embedding(clean)
             if emb and len(emb) > 0:
@@ -40,11 +43,11 @@ class DenseMatcher:
         except Exception:
             pass
 
-        # 2. Deterministic hashing fallback (preserves semantic n-gram overlap)
+        # 2. Deterministic lexical subword hash fallback
         return self._generate_hashed_embedding(clean)
 
     def _generate_hashed_embedding(self, text: str) -> list[float]:
-        """Generates a normalized n-gram hashed bag-of-words vector."""
+        """Generates a normalized lexical n-gram hashed bag-of-words vector representation."""
         vec = [0.0] * self.fallback_dim
         words = text.lower().split()
         if not words:

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class GenerateRoadmapRequest(BaseModel):
@@ -33,6 +33,7 @@ class LearningMilestoneResponse(BaseModel):
     estimated_hours: int = 10
     completed_evidence: dict[str, Any] | None = None
     evidence_verified: bool = False
+    verification_status: str = "UNSUBMITTED"
     is_completed: bool = False
     created_at: datetime
 
@@ -49,6 +50,22 @@ class SubmitEvidenceRequest(BaseModel):
     github_url: str | None = None
     demo_url: str | None = None
     test_results: str | None = None
+
+    @field_validator("github_url", "demo_url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if not v:
+            return None
+        import urllib.parse
+        parsed = urllib.parse.urlparse(v.strip())
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(f"Invalid URL '{v}'. Must be a valid HTTP or HTTPS URL.")
+        return v.strip()
+
+
+class ReviewEvidenceRequest(BaseModel):
+    status: str = Field(..., description="VERIFIED or REJECTED")
+    reviewer_notes: str | None = None
 
 
 class LearningRoadmapResponse(BaseModel):

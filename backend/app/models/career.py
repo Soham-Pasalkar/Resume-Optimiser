@@ -137,6 +137,11 @@ class LearningMilestone(TimestampedBase):
         default=False,
         nullable=False,
     )
+    verification_status: Mapped[str] = mapped_column(
+        String(50),
+        default="UNSUBMITTED",
+        nullable=False,
+    )
     is_completed: Mapped[bool] = mapped_column(
         Boolean,
         default=False,

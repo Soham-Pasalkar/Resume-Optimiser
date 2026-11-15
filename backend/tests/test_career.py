@@ -70,6 +70,55 @@ async def test_roadmap_generator_curated_fallback():
 
 
 @pytest.mark.asyncio
+async def test_roadmap_generator_personalization_with_candidate_context():
+    req_spark = JDRequirement(
+        id=uuid.uuid4(),
+        jd_id=uuid.uuid4(),
+        requirement_text="High-throughput distributed data pipelines using PySpark and Delta Lake",
+        category="technical_skill",
+        canonical_skill_name="PySpark",
+    )
+    gap_spark = SkillGapItem(
+        match_evaluation_id=uuid.uuid4(),
+        requirement_id=req_spark.id,
+        status="NOT_DEMONSTRATED",
+        gap_severity="CRITICAL",
+        suggested_action="Build distributed lakehouse ETL pipelines using PySpark.",
+    )
+    gap_spark.requirement = req_spark
+
+    candidate_context = {
+        "demonstrated_skills": ["Python", "SQL", "PostgreSQL"],
+        "transferable_skills": ["Docker", "Linux"],
+        "candidate_proficiency": {"python": "expert", "sql": "proficient"},
+        "existing_projects": [
+            {"title": "Financial Transaction Aggregator", "bullets": ["Built Python ETL services"]}
+        ],
+        "target_role": "Citi Senior Data Engineer",
+    }
+
+    roadmap_data = await roadmap_generator.generate_roadmap(
+        target_role="Citi Senior Data Engineer",
+        unresolved_gaps=[gap_spark],
+        candidate_context=candidate_context,
+    )
+
+    milestones = roadmap_data.get("milestones", [])
+    assert len(milestones) == 1
+    m0 = milestones[0]
+
+    # Verify role-tailored title
+    assert "Citi Senior Data Engineer" in m0["milestone_title"]
+    # Verify foundation prerequisite references candidate's demonstrated background
+    assert any("demonstrated background in Python" in p for p in m0["prerequisites"])
+    # Verify project brief is specific to Data Engineer and PySpark Lakehouse ETL
+    assert "Lakehouse ETL" in m0["practical_project_brief"]
+    assert "Citi Senior Data Engineer" in m0["practical_project_brief"]
+    # Verify verification criteria requires deliverable evaluation rather than self-attestation alone
+    assert any("peer review" in c or "evaluation" in c for c in m0["verification_criteria"])
+
+
+@pytest.mark.asyncio
 async def test_interview_prompt_generator_questions():
     jd = JobDescription(
         id=uuid.uuid4(),
@@ -305,15 +354,34 @@ async def test_career_api_lifecycle(async_client: AsyncClient, db_session: Async
     )
     assert ev_resp.status_code == 200
     ev_data = ev_resp.json()
-    assert ev_data["is_completed"] is True
-    assert ev_data["evidence_verified"] is True
+    assert ev_data["is_completed"] is False
+    assert ev_data["evidence_verified"] is False
+    assert ev_data["verification_status"] == "PENDING_REVIEW"
     assert ev_data["completed_evidence"]["github_url"] == "https://github.com/candidate/spark-etl-pipeline"
 
-    # Verify skill was synchronized to Candidate Profile
+    # Verify skill was created in Candidate Profile as unverified pending review
     prof_resp = await async_client.get("/api/v1/candidate/profile", headers=headers_a)
     assert prof_resp.status_code == 200
     prof_skills = prof_resp.json()
-    assert any(s["skill_name"].lower() == milestone_0["skill_name"].lower() and s["is_user_verified"] for s in prof_skills)
+    assert any(s["skill_name"].lower() == milestone_0["skill_name"].lower() and not s["is_user_verified"] for s in prof_skills)
+
+    # 8b. Review and verify milestone evidence
+    rev_resp = await async_client.post(
+        f"/api/v1/learning/milestones/{milestone_id}/review",
+        headers=headers_a,
+        json={"status": "VERIFIED", "reviewer_notes": "All unit tests pass and repo structure validated."},
+    )
+    assert rev_resp.status_code == 200
+    rev_data = rev_resp.json()
+    assert rev_data["is_completed"] is True
+    assert rev_data["evidence_verified"] is True
+    assert rev_data["verification_status"] == "VERIFIED"
+
+    # Verify skill is now verified in Candidate Profile
+    prof_resp2 = await async_client.get("/api/v1/candidate/profile", headers=headers_a)
+    assert prof_resp2.status_code == 200
+    prof_skills2 = prof_resp2.json()
+    assert any(s["skill_name"].lower() == milestone_0["skill_name"].lower() and s["is_user_verified"] for s in prof_skills2)
 
     # 9. Generate Interview Prep
     prep_resp = await async_client.post(

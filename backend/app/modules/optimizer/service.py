@@ -241,7 +241,9 @@ class OptimizerService:
                     db.add(diff)
                     created_diffs.append(diff)
 
-        # 10. Re-sync content snapshot via resume_composer
+        # 10. Re-sync content snapshot via resume_composer with role-aligned summary
+        role_summary = intel_results.get("role_summary", "")
+        tailored.tailored_content["role_summary"] = role_summary
         synced = resume_composer.sync_tailored_content_snapshot(tailored, created_diffs)
         # Preserve intelligence metadata
         synced["requirement_mappings"] = req_mappings
@@ -249,7 +251,7 @@ class OptimizerService:
         synced["content_decisions"] = content_decisions
         synced["intel_summary"] = intel_results.get("summary", {})
         synced["four_tier_breakdown"] = intel_results.get("four_tier_breakdown", {})
-        synced["role_summary"] = intel_results.get("role_summary", "")
+        synced["role_summary"] = role_summary
 
         # Compute initial ATS metrics
         ats_comp = ats_evaluator.evaluate_job_compatibility(synced, jd, req_mappings)
@@ -457,13 +459,23 @@ class OptimizerService:
         tailored_id: uuid.UUID,
         requirement_id: uuid.UUID,
         evidence_text: str,
-        section_name: str = "Master Profile Evidence",
-        match_category: str = "DEMONSTRATED",
+        section_name: str = "Candidate Self-Attestation",
+        evidence_url: str | None = None,
     ) -> TailoredResume:
-        """Manually attach candidate-verified evidence to a requirement, upgrading its tier."""
+        """Attach candidate self-attestation to a requirement.
+        Applies strict server-side classification: categorized conservatively as TRANSFERABLE
+        with PENDING_REVIEW verification status and confidence capped at 0.50.
+        """
         tailored = await self.get_tailored_resume(db, user_id, tailored_id)
         if not tailored:
             raise ValueError("Tailored resume not found.")
+
+        # Validate URL if present
+        if evidence_url:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(evidence_url.strip())
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise ValueError(f"Invalid URL format: '{evidence_url}'")
 
         content = copy.deepcopy(tailored.tailored_content or {})
         req_mappings = content.get("requirement_mappings", [])
@@ -478,15 +490,24 @@ class OptimizerService:
         # Remove from missing requirements list
         content["missing_requirements"] = [m for m in missing_reqs if m.get("requirement_id") != req_str]
 
+        # Server-side classification: self-attestation without third-party proof is TRANSFERABLE
+        assigned_category = "TRANSFERABLE"
+        assigned_confidence = 0.55 if evidence_url else 0.45
+        assigned_explanation = f"Candidate self-attestation (Pending Review): {evidence_text.strip()}"
+        if evidence_url:
+            assigned_explanation += f" (Artifact: {evidence_url.strip()})"
+
         # Update or create mapping
         found_mapping = next((m for m in req_mappings if m.get("requirement_id") == req_str), None)
         if found_mapping:
-            found_mapping["match_category"] = match_category
+            found_mapping["match_category"] = assigned_category
             found_mapping["original_evidence_text"] = evidence_text
-            found_mapping["explanation"] = f"Candidate verified evidence: {evidence_text}"
-            found_mapping["confidence_score"] = 0.95
-            found_mapping["verification_status"] = "CANDIDATE_VERIFIED"
-            found_mapping["requires_human_verification"] = False
+            found_mapping["explanation"] = assigned_explanation
+            found_mapping["confidence_score"] = assigned_confidence
+            found_mapping["verification_status"] = "PENDING_REVIEW"
+            found_mapping["matching_method"] = "CANDIDATE_SELF_ATTESTATION"
+            found_mapping["requires_human_verification"] = True
+            found_mapping["suggested_action"] = "Provide independent repository review or work artifact to verify as demonstrated."
         else:
             new_mapping = {
                 "requirement_id": req_str,
@@ -499,13 +520,13 @@ class OptimizerService:
                 "matched_item_id": None,
                 "matched_bullet_index": None,
                 "original_evidence_text": evidence_text,
-                "matching_method": "CANDIDATE_VERIFIED_INPUT",
-                "confidence_score": 0.95,
-                "verification_status": "CANDIDATE_VERIFIED",
-                "match_category": match_category,
-                "explanation": f"Candidate verified evidence: {evidence_text}",
-                "requires_human_verification": False,
-                "suggested_action": None,
+                "matching_method": "CANDIDATE_SELF_ATTESTATION",
+                "confidence_score": assigned_confidence,
+                "verification_status": "PENDING_REVIEW",
+                "match_category": assigned_category,
+                "explanation": assigned_explanation,
+                "requires_human_verification": True,
+                "suggested_action": "Provide independent repository review or work artifact to verify as demonstrated.",
             }
             req_mappings.append(new_mapping)
 

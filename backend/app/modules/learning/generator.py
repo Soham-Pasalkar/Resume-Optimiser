@@ -512,8 +512,18 @@ class RoadmapGenerator:
     PROMPT_TEMPLATE = """You are a Principal Software Architect and technical curriculum designer.
 Construct a highly structured, professional learning roadmap to bridge the following skill gaps for the role: '{role}'.
 
+Candidate Context:
+- Demonstrated Skills: {demonstrated}
+- Transferable Skills: {transferable}
+- Candidate Projects: {projects}
+
 Skill Gaps to Address:
 {gaps}
+
+Instructions:
+1. Reference what the candidate already demonstrates when defining prerequisites (e.g. 'Builds on candidate's demonstrated background in Python & SQL').
+2. Tailor milestone titles, why it matters, and practical project briefs specifically for the '{role}' opportunity (e.g. for a Data Engineer, produce lakehouse ETL or data warehouse architectures, not generic web applications).
+3. Specify concrete portfolio deliverables and rigorous verification criteria (noting that formal review is required for verified skill recognition).
 
 Generate structured JSON containing milestones with all 10 essential fields:
 {{
@@ -545,8 +555,18 @@ Return ONLY valid JSON.
         self,
         target_role: str,
         unresolved_gaps: list[SkillGapItem],
+        candidate_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Generate structured milestones and concrete project briefs."""
+        context = candidate_context or {}
+        demonstrated = ", ".join(context.get("demonstrated_skills", [])) or "None recorded"
+        transferable = ", ".join(context.get("transferable_skills", [])) or "None recorded"
+        existing_projs = context.get("existing_projects", [])
+        proj_str = (
+            ", ".join(p.get("title", "") for p in existing_projs[:3] if p.get("title"))
+            or "Standard background"
+        )
+
         # 1. Try local Ollama generation
         try:
             status = await ollama_client.get_status()
@@ -556,7 +576,13 @@ Return ONLY valid JSON.
                     for g in unresolved_gaps[:5]
                     if g.requirement
                 )
-                prompt = self.PROMPT_TEMPLATE.format(role=target_role, gaps=gaps_summary)
+                prompt = self.PROMPT_TEMPLATE.format(
+                    role=target_role,
+                    gaps=gaps_summary,
+                    demonstrated=demonstrated,
+                    transferable=transferable,
+                    projects=proj_str,
+                )
                 resp = await ollama_client.generate(
                     prompt=prompt,
                     system_prompt="You generate structured technical learning roadmaps in valid JSON with all 10 milestone fields.",
@@ -578,22 +604,41 @@ Return ONLY valid JSON.
             )
 
         # 2. Curated Blueprint Fallback
-        return self._generate_curated_fallback(target_role, unresolved_gaps)
+        return self._generate_curated_fallback(target_role, unresolved_gaps, candidate_context)
 
     def _generate_curated_fallback(
         self,
         target_role: str,
         unresolved_gaps: list[SkillGapItem],
+        candidate_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         milestones = []
         total_hours = 0
         order = 1
+
+        context = candidate_context or {}
+        demonstrated = context.get("demonstrated_skills", [])
+        transferable = context.get("transferable_skills", [])
+        existing_projects = context.get("existing_projects", [])
+
+        # Build personalized foundation prerequisite string
+        if demonstrated:
+            foundation_prereq = f"Builds on candidate's demonstrated background in {', '.join(demonstrated[:3])}"
+        elif transferable:
+            foundation_prereq = f"Builds on transferable foundation in {', '.join(transferable[:2])}"
+        else:
+            foundation_prereq = "Core software engineering and computer science principles"
 
         # Sort gaps: CRITICAL first, then MODERATE, then LOW
         priority_order = {"CRITICAL": 0, "MODERATE": 1, "LOW": 2}
         sorted_gaps = sorted(
             unresolved_gaps,
             key=lambda g: priority_order.get(g.gap_severity, 3),
+        )
+
+        verification_standard = (
+            "Code repository with test coverage (>80%) submitted for peer review; "
+            "independent deliverable evaluation required to achieve verified skill status."
         )
 
         for gap in sorted_gaps[:5]:
@@ -611,20 +656,49 @@ Return ONLY valid JSON.
 
             if matched_blueprint:
                 name, bp = matched_blueprint
+                # Personalize title and project for target role
+                title_suffix = f" for {target_role}" if target_role and target_role != "Target Role" else ""
+                curated_title = f"{bp['title']}{title_suffix}"
+                
+                # Role-tailored project brief
+                base_project = bp["project"]
+                if target_role and "data engineer" in target_role.lower():
+                    if name.lower() in ("spark", "pyspark"):
+                        project_brief = (
+                            f"Architect an automated PySpark Lakehouse ETL pipeline tailored for {target_role}, "
+                            "ingesting high-volume records into partitioned Delta Lake tables with Great Expectations "
+                            "assertions, automated tests, and Docker reproducible runtime."
+                        )
+                    elif name.lower() == "snowflake":
+                        project_brief = (
+                            f"Design and benchmark an automated Snowflake data mart tailored for {target_role}, "
+                            "featuring multi-cluster warehouse scaling, auto-clustering keys, Snowpark ingestion, and zero-copy clone DR."
+                        )
+                    else:
+                        project_brief = f"{base_project} Engineered to meet production data engineering standards for {target_role}."
+                else:
+                    project_brief = f"{base_project} (Tailored for {target_role})"
+
+                prereqs = [foundation_prereq] + [p for p in bp.get("prerequisites", []) if p != foundation_prereq]
+                criteria = bp.get("criteria", []) + [verification_standard]
+
                 milestones.append(
                     {
                         "sequence_order": order,
                         "skill_name": name,
-                        "milestone_title": bp["title"],
-                        "why_it_matters": bp.get("why_it_matters") or f"Directly satisfies core requirements for the {target_role} role.",
+                        "milestone_title": curated_title,
+                        "why_it_matters": (
+                            f"Directly satisfies core requirements for the {target_role} role. "
+                            f"{bp.get('why_it_matters', '')}"
+                        ),
                         "description": bp["desc"],
-                        "prerequisites": bp.get("prerequisites", ["Core software engineering principles"]),
+                        "prerequisites": prereqs,
                         "learning_objectives": bp.get("objectives", [f"Master production implementation of {name}"]),
                         "curated_resources": bp["resources"],
                         "practical_exercises": bp.get("exercises", [f"Hands-on configuration and debugging of {name}"]),
-                        "practical_project_brief": bp["project"],
+                        "practical_project_brief": project_brief,
                         "expected_deliverables": bp.get("deliverables", ["Repository code and unit tests"]),
-                        "verification_criteria": bp.get("criteria", ["Clean execution without errors"]),
+                        "verification_criteria": criteria,
                         "estimated_hours": bp.get("hours", 18),
                     }
                 )
@@ -633,19 +707,20 @@ Return ONLY valid JSON.
                 skill_name = req.canonical_skill_name or req.requirement_text[:30]
                 clean_req = req.requirement_text.rstrip(".")
                 doc_query = skill_name.lower().replace(" ", "-")
+                title_suffix = f" for {target_role}" if target_role and target_role != "Target Role" else ""
 
                 milestones.append(
                     {
                         "sequence_order": order,
                         "skill_name": skill_name,
-                        "milestone_title": f"Production Implementation & Mastery of {skill_name}",
+                        "milestone_title": f"Production Implementation & Mastery of {skill_name}{title_suffix}",
                         "why_it_matters": (
-                            f"Mastering {skill_name} directly addresses a key gap identified for the {target_role} opportunity, "
-                            "demonstrating engineering capability and production readiness."
+                            f"Mastering {skill_name} directly addresses a key requirement identified for the {target_role} opportunity, "
+                            f"demonstrating engineering capability and production readiness."
                         ),
                         "description": f"Master the architectural principles, best practices, and integration patterns for {skill_name} as required for the {target_role} role.",
                         "prerequisites": [
-                            "Core software engineering principles",
+                            foundation_prereq,
                             "Version control with Git",
                             "Automated testing methodologies",
                         ],
@@ -670,7 +745,7 @@ Return ONLY valid JSON.
                             f"Exercise 1: Build a minimal working proof-of-concept demonstrating {skill_name} core capabilities",
                             f"Exercise 2: Write unit and integration tests verifying failure modes and recovery for {skill_name}",
                         ],
-                        "practical_project_brief": f"Engineer a working production deliverable directly demonstrating '{clean_req}' with unit test coverage, containerization, and structured logging.",
+                        "practical_project_brief": f"Engineer a working production deliverable for {target_role} directly demonstrating '{clean_req}' with unit test coverage, containerization, and structured logging.",
                         "expected_deliverables": [
                             f"Clean GitHub repository implementing {skill_name} deliverable",
                             "Comprehensive automated test suite with >80% code coverage",
@@ -678,8 +753,8 @@ Return ONLY valid JSON.
                         ],
                         "verification_criteria": [
                             "End-to-end execution without errors in isolated environment",
-                            "Passing test suite verifying core business logic",
-                            "Compliance with production coding standards and static analysis",
+                            "Passing test suite verifying core business logic (>80% coverage)",
+                            verification_standard,
                         ],
                         "estimated_hours": 16,
                     }
@@ -696,7 +771,7 @@ Return ONLY valid JSON.
                     "milestone_title": f"High-Scale Architecture for {target_role}",
                     "why_it_matters": f"Essential architectural foundation for designing scalable systems as a {target_role}.",
                     "description": "Learn scalable distributed patterns, asynchronous event streaming, and resilient caching.",
-                    "prerequisites": ["Distributed systems fundamentals"],
+                    "prerequisites": [foundation_prereq, "Distributed systems fundamentals"],
                     "learning_objectives": [
                         "Design horizontally scalable service topologies",
                         "Implement multi-layer caching and load balancing",
@@ -711,12 +786,13 @@ Return ONLY valid JSON.
                     "practical_exercises": [
                         "Exercise 1: Design data model and API specs for high-concurrency event ingestion",
                     ],
-                    "practical_project_brief": "Design and document an end-to-end distributed system handling 10M daily active requests with caching and disaster recovery.",
+                    "practical_project_brief": f"Design and document an end-to-end distributed system for {target_role} handling 10M daily active requests with caching and disaster recovery.",
                     "expected_deliverables": [
                         "Complete technical architecture document with C4 component diagrams",
                     ],
                     "verification_criteria": [
                         "System handles 10M requests without single points of failure",
+                        verification_standard,
                     ],
                     "estimated_hours": 20,
                 }

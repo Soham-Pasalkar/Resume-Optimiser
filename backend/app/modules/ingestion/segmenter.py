@@ -48,7 +48,7 @@ class SectionSegmenter:
     }
 
     # Bullet point prefix detection
-    BULLET_REGEX = re.compile(r"^(\s*[-•*▪▸–—]\s*|\s*\d+[\.\)]\s+)")
+    BULLET_REGEX = re.compile(r"^(\s*[-•*▪▸–—]\s*|\s*\d+[\.\)]\s+|\s*\(cid:\d+\)\s*)")
 
     # Date span pattern (e.g. "Jan 2021 - Present", "2020 - 2023", "05/2019 to 08/2021")
     DATE_SPAN_REGEX = re.compile(
@@ -177,7 +177,15 @@ class SectionSegmenter:
                 items.append(
                     {
                         "item_type": item_type,
-                        "title": current_title or f"Role at {current_org}" if current_org else "Professional Experience",
+                        "title": current_title or (
+                            f"Role at {current_org}"
+                            if current_org
+                            else (
+                                "Technical Project"
+                                if section_type == "projects"
+                                else "Professional Experience"
+                            )
+                        ),
                         "organization": current_org,
                         "location": current_location,
                         "start_date": current_start,

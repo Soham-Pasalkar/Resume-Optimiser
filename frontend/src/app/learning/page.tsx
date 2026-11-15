@@ -17,6 +17,7 @@ import {
   ChevronRight,
   TrendingUp,
   Award,
+  ShieldCheck,
 } from "lucide-react";
 import {
   deleteRoadmap,
@@ -581,8 +582,8 @@ export default function LearningPage() {
                           )}
                         </div>
 
-                        {/* Completed Evidence Record or Action Button */}
-                        {m.evidence_verified && m.completed_evidence ? (
+                        {/* Evidence Records and Verification Status */}
+                        {m.verification_status === "VERIFIED" || (m.evidence_verified && m.completed_evidence) ? (
                           <div className="surface p-3.5 rounded-xl border border-emerald-300 bg-emerald-50/20 space-y-1.5 text-xs">
                             <div className="flex items-center justify-between">
                               <span className="font-bold text-emerald-800 flex items-center gap-1.5">
@@ -590,16 +591,40 @@ export default function LearningPage() {
                                 Verified Deliverable & Synchronized Competency
                               </span>
                               <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                                Synced to Profile
+                                Verified in Profile
                               </span>
                             </div>
-                            <p className="text-slate-700">{m.completed_evidence.evidence_text}</p>
-                            {m.completed_evidence.github_url && (
+                            <p className="text-slate-700">{m.completed_evidence?.evidence_text}</p>
+                            {m.completed_evidence?.github_url && (
                               <a
                                 href={m.completed_evidence.github_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-xs text-soft-blue hover:underline flex items-center gap-1 font-semibold"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                Repository: {m.completed_evidence.github_url}
+                              </a>
+                            )}
+                          </div>
+                        ) : m.verification_status === "PENDING_REVIEW" || (m.completed_evidence && !m.evidence_verified) ? (
+                          <div className="surface p-3.5 rounded-xl border border-amber-300 bg-amber-50/20 space-y-1.5 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-amber-800 flex items-center gap-1.5">
+                                <Clock className="w-4 h-4 text-amber-600" />
+                                Deliverable Submitted — Awaiting Review
+                              </span>
+                              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                Pending Verification
+                              </span>
+                            </div>
+                            <p className="text-slate-700">{m.completed_evidence?.evidence_text}</p>
+                            {m.completed_evidence?.github_url && (
+                              <a
+                                href={m.completed_evidence.github_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-amber-800 hover:underline flex items-center gap-1 font-semibold"
                               >
                                 <ExternalLink className="w-3 h-3" />
                                 Repository: {m.completed_evidence.github_url}
@@ -618,8 +643,8 @@ export default function LearningPage() {
                               }}
                               className="btn-primary px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                             >
-                              <Award className="w-3.5 h-3.5" />
-                              Submit Deliverable & Verify Skill
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>Submit Deliverable for Review</span>
                             </button>
                           </div>
                         )}
@@ -802,7 +827,7 @@ export default function LearningPage() {
               </div>
 
               <p className="text-[10px] text-soft-muted">
-                Submitting this deliverable marks this milestone completed and synchronizes the verified competency to your Master Candidate Profile.
+                Submissions are recorded with full provenance and entered into review before formal competency verification in your profile.
               </p>
 
               <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-200">

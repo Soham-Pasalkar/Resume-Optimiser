@@ -255,4 +255,29 @@ CANONICAL_SKILLS = [
             "rag",
         ],
     },
+    {
+        "canonical_name": "PySpark",
+        "category": "AI, ML & Data",
+        "aliases": ["pyspark", "apache spark", "spark", "spark sql"],
+    },
+    {
+        "canonical_name": "Apache Airflow",
+        "category": "Cloud & Infrastructure",
+        "aliases": ["airflow", "apache airflow"],
+    },
+    {
+        "canonical_name": "dbt",
+        "category": "Databases & Storage",
+        "aliases": ["dbt", "data build tool"],
+    },
+    {
+        "canonical_name": "Apache Kafka",
+        "category": "Databases & Storage",
+        "aliases": ["kafka", "apache kafka"],
+    },
+    {
+        "canonical_name": "Delta Lake",
+        "category": "Databases & Storage",
+        "aliases": ["delta lake", "lakehouse"],
+    },
 ]

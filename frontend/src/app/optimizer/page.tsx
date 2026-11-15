@@ -81,7 +81,7 @@ function OptimizerContent() {
   // Custom Evidence Modal
   const [evidenceModalReq, setEvidenceModalReq] = useState<RequirementEvidenceMapping | MissingRequirementItem | null>(null);
   const [customEvidenceText, setCustomEvidenceText] = useState("");
-  const [customEvidenceCategory, setCustomEvidenceCategory] = useState("DEMONSTRATED");
+  const [customEvidenceUrl, setCustomEvidenceUrl] = useState("");
   const [submittingEvidence, setSubmittingEvidence] = useState(false);
 
   // Inline editing state for a diff
@@ -289,12 +289,13 @@ function OptimizerContent() {
       const updated = await addCustomEvidence(selectedResume.id, {
         requirement_id: reqId,
         evidence_text: customEvidenceText.trim(),
-        section_name: "Master Profile Evidence",
-        match_category: customEvidenceCategory,
+        section_name: "Candidate Self-Attestation",
+        evidence_url: customEvidenceUrl.trim() || undefined,
       });
       setSelectedResume(updated);
       setEvidenceModalReq(null);
       setCustomEvidenceText("");
+      setCustomEvidenceUrl("");
       loadAtsData(selectedResume.id);
     } catch (err: any) {
       setError(err.message || "Failed to attach custom evidence.");
@@ -969,7 +970,7 @@ function OptimizerContent() {
                             onClick={() => {
                               setEvidenceModalReq(req);
                               setCustomEvidenceText(req.original_evidence_text || "");
-                              setCustomEvidenceCategory(cat === "MISSING" ? "DEMONSTRATED" : cat);
+                              setCustomEvidenceUrl("");
                             }}
                             className="btn-soft px-2.5 py-1 rounded-lg text-[10px] font-bold text-soft-blue flex items-center gap-1 shrink-0 cursor-pointer"
                           >
@@ -1269,48 +1270,31 @@ function OptimizerContent() {
             <form onSubmit={handleAddCustomEvidenceSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
-                  Evidence Tier
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCustomEvidenceCategory("DEMONSTRATED")}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      customEvidenceCategory === "DEMONSTRATED"
-                        ? "bg-emerald-50 text-emerald-800 border-emerald-300 shadow-xs"
-                        : "bg-slate-50 text-slate-600 border-slate-200"
-                    }`}
-                  >
-                    ✓ Demonstrated
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCustomEvidenceCategory("TRANSFERABLE")}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      customEvidenceCategory === "TRANSFERABLE"
-                        ? "bg-blue-50 text-blue-800 border-blue-300 shadow-xs"
-                        : "bg-slate-50 text-slate-600 border-slate-200"
-                    }`}
-                  >
-                    ↔ Transferable
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
                   Verifiable Achievement / Experience Detail *
                 </label>
                 <textarea
                   rows={4}
                   value={customEvidenceText}
                   onChange={(e) => setCustomEvidenceText(e.target.value)}
-                  placeholder="Describe your concrete project experience, responsibilities, or measurable outcome verifying this competency..."
+                  placeholder="Describe your concrete experience, responsibilities, or measurable outcome for this competency..."
                   className="w-full text-xs rounded-xl well border border-white/60 p-3 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue resize-none"
                   required
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
+                  Repository / Artifact URL (Optional)
+                </label>
+                <input
+                  type="url"
+                  value={customEvidenceUrl}
+                  onChange={(e) => setCustomEvidenceUrl(e.target.value)}
+                  placeholder="https://github.com/your-username/repo-name"
+                  className="w-full text-xs rounded-xl well border border-white/60 p-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
+                />
                 <p className="text-[10px] text-soft-muted mt-1">
-                  Factual preservation rule: Provide authentic evidence from your experience. Never fabricate metrics.
+                  Submissions are server-classified as self-attested evidence (pending independent verification).
                 </p>
               </div>
 

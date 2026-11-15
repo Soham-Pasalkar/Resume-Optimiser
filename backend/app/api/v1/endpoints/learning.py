@@ -12,6 +12,7 @@ from app.schemas.learning import (
     LearningMilestoneResponse,
     LearningRoadmapResponse,
     LearningRoadmapSummaryResponse,
+    ReviewEvidenceRequest,
     SubmitEvidenceRequest,
     UpdateMilestoneRequest,
 )
@@ -133,6 +134,35 @@ async def submit_milestone_evidence(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to submit evidence: {e!s}",
+        ) from e
+
+
+@router.post(
+    "/milestones/{milestone_id}/review",
+    response_model=LearningMilestoneResponse,
+    summary="Review submitted deliverable evidence (VERIFIED or REJECTED)",
+)
+async def review_milestone_evidence(
+    milestone_id: uuid.UUID,
+    payload: ReviewEvidenceRequest,
+    current_user_id: Annotated[uuid.UUID, Depends(get_current_user_id)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> LearningMilestoneResponse:
+    try:
+        milestone = await learning_service.review_milestone_evidence(
+            db=db,
+            user_id=current_user_id,
+            milestone_id=milestone_id,
+            status=payload.status,
+            reviewer_notes=payload.reviewer_notes,
+        )
+        return LearningMilestoneResponse.model_validate(milestone)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to review milestone: {e!s}",
         ) from e
 
 

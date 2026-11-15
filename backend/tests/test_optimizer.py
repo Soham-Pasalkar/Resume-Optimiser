@@ -150,7 +150,7 @@ async def test_content_intelligence_and_requirement_mapping():
     kafka_map = next(m for m in mappings if "kafka" in (m["canonical_skill_name"] or "").lower())
     assert kafka_map["is_mandatory"] is True
     assert kafka_map["verification_status"] == "CANDIDATE_VERIFIED"
-    assert kafka_map["matching_method"] in ["ONTOLOGY_EXACT", "DENSE_OLLAMA", "DENSE_HASH_FALLBACK"]
+    assert kafka_map["matching_method"] in ["RESUME_DIRECT_EVIDENCE", "ONTOLOGY_EXACT", "DENSE_OLLAMA_NEURAL", "DENSE_OLLAMA"]
     assert kafka_map["confidence_score"] >= 0.50
 
     # 2. Missing requirements (Snowflake is not in resume or profile)
@@ -288,6 +288,22 @@ def test_resume_export_pdf_and_docx():
                 ],
             },
             {
+                "heading": "Technical Projects",
+                "section_type": "PROJECTS",
+                "items": [
+                    {
+                        "title": "Cloud Lakehouse Framework",
+                        "organization": "Open Source",
+                        "location": "Remote",
+                        "start_date": "2022",
+                        "end_date": "2023",
+                        "bullets": [
+                            "Built open-source Delta Lake ingestion utility for batch processing.",
+                        ],
+                    }
+                ],
+            },
+            {
                 "heading": "Technical Skills",
                 "section_type": "SKILLS",
                 "raw_content": "Python, Go, PostgreSQL, Docker, AWS",
@@ -409,9 +425,30 @@ def test_ats_evaluator_and_four_tier_taxonomy():
                 ],
             },
             {
+                "heading": "Technical Projects",
+                "section_type": "PROJECTS",
+                "items": [
+                    {
+                        "title": "Cloud Lakehouse Framework",
+                        "organization": "Open Source",
+                        "location": "Remote",
+                        "start_date": "2022",
+                        "end_date": "2023",
+                        "bullets": [
+                            "Built open-source Delta Lake ingestion utility for batch processing.",
+                        ],
+                    }
+                ],
+            },
+            {
                 "heading": "Technical Skills",
                 "section_type": "SKILLS",
                 "raw_content": "PySpark, Python, SQL, PostgreSQL, Kafka, Docker, Kubernetes, Snowflake",
+            },
+            {
+                "heading": "Certifications",
+                "section_type": "CERTIFICATIONS",
+                "raw_content": "Databricks Certified Spark Developer, Snowflake SnowPro Core",
             },
         ],
     }
@@ -597,7 +634,8 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
         headers=headers_a,
     )
     snapshot = refreshed_detail.json()["tailored_content"]
-    exp_bullets = snapshot["sections"][0]["items"][0]["bullets"]
+    work_sec = next(s for s in snapshot["sections"] if s.get("section_type") in ("EXPERIENCE", "WORK"))
+    exp_bullets = work_sec["items"][0]["bullets"]
     assert exp_bullets[0] == diff_0["optimized_text"]
 
     # 8. Restore Diff to Original Text
@@ -613,7 +651,8 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
         f"/api/v1/optimizer/tailored-resumes/{tailored_id}",
         headers=headers_a,
     )
-    exp_bullets_restored = refreshed_detail_restored.json()["tailored_content"]["sections"][0]["items"][0]["bullets"]
+    work_sec_restored = next(s for s in refreshed_detail_restored.json()["tailored_content"]["sections"] if s.get("section_type") in ("EXPERIENCE", "WORK"))
+    exp_bullets_restored = work_sec_restored["items"][0]["bullets"]
     assert exp_bullets_restored[0] == diff_0["original_text"]
 
     # 9. Edit a diff with custom text
@@ -686,15 +725,16 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
             "requirement_id": jd_req_id,
             "evidence_text": "Completed advanced enterprise production data pipeline deployment with Delta Lake and Spark.",
             "section_name": "Project Portfolio",
-            "match_category": "DEMONSTRATED",
         },
     )
     assert custom_ev_resp.status_code == 200
     updated_tailored = custom_ev_resp.json()
     req_mappings = updated_tailored["tailored_content"]["requirement_mappings"]
     target_mapping = next(m for m in req_mappings if m["requirement_id"] == jd_req_id)
-    assert target_mapping["match_category"] == "DEMONSTRATED"
-    assert target_mapping["verification_status"] == "CANDIDATE_VERIFIED"
+    assert target_mapping["match_category"] == "TRANSFERABLE"
+    assert target_mapping["verification_status"] == "PENDING_REVIEW"
+    assert target_mapping["requires_human_verification"] is True
+    assert target_mapping["confidence_score"] <= 0.60
 
     # 14. Multi-tenant boundary check with User B
     user_b_email = f"tailor_b_{uuid.uuid4().hex[:6]}@example.com"
@@ -737,3 +777,155 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
         headers=headers_a,
     )
     assert after_del.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_adversarial_requirement_matching_and_verification():
+    """Adversarial testing verifying zero-hallucination requirement matching:
+    1. Python experience alone does NOT demonstrate PySpark.
+    2. SQL usage alone does NOT demonstrate Snowflake.
+    3. Technology in an unrelated personal project does NOT prove enterprise professional experience.
+    4. Skill listed only in profile remains PROFILE_LISTED.
+    5. Candidate-submitted statement remains unverified until approved.
+    """
+    user_id = uuid.uuid4()
+    resume = Resume(
+        user_id=user_id,
+        file_name="elena_data_engineer.pdf",
+        file_key="resumes/elena.pdf",
+        file_format="pdf",
+        file_size_bytes=4096,
+        raw_text="Elena Rostova Resume",
+    )
+    # Work experience with pure Python and PostgreSQL SQL
+    sec_exp = ResumeSection(
+        resume_id=resume.id,
+        section_type="EXPERIENCE",
+        heading="Professional Work Experience",
+        display_order=1,
+    )
+    item_exp = ResumeItem(
+        section_id=sec_exp.id,
+        title="Backend Software Engineer",
+        organization="Fintech Tech Inc",
+        bullets=[
+            "Engineered high-throughput REST APIs and asynchronous worker tasks using Python and FastAPI.",
+            "Wrote complex SQL analytical queries, table indexes, and views in PostgreSQL.",
+        ],
+    )
+    sec_exp.items = [item_exp]
+
+    # Personal project mentioning Docker
+    sec_proj = ResumeSection(
+        resume_id=resume.id,
+        section_type="PROJECTS",
+        heading="Personal Projects",
+        display_order=2,
+    )
+    item_proj = ResumeItem(
+        section_id=sec_proj.id,
+        title="Home Lab Docker Automation",
+        organization="Personal",
+        bullets=[
+            "Configured local multi-container Docker services for personal media streaming.",
+        ],
+    )
+    sec_proj.items = [item_proj]
+
+    # Skills section mentioning Airflow (no bullets)
+    sec_skills = ResumeSection(
+        resume_id=resume.id,
+        section_type="SKILLS",
+        heading="Technical Skills",
+        raw_content="Python, SQL, PostgreSQL, Docker, Apache Airflow",
+        display_order=3,
+    )
+    sec_skills.items = []
+    resume.sections = [sec_exp, sec_proj, sec_skills]
+
+    # Target JD requirements
+    jd = JobDescription(
+        user_id=user_id,
+        job_title="Principal Data Engineer",
+        company_name="Citigroup",
+        raw_text="Citigroup Principal Data Engineer JD",
+    )
+    req_pyspark = JDRequirement(
+        id=uuid.uuid4(),
+        jd_id=jd.id,
+        requirement_text="5+ years of production experience architecting distributed data pipelines using PySpark and Spark dataframes.",
+        canonical_skill_name="PySpark",
+        category="technical_skill",
+        is_mandatory=True,
+    )
+    req_snowflake = JDRequirement(
+        id=uuid.uuid4(),
+        jd_id=jd.id,
+        requirement_text="Deep production expertise in Snowflake cloud data warehousing.",
+        canonical_skill_name="Snowflake",
+        category="technical_skill",
+        is_mandatory=True,
+    )
+    req_docker = JDRequirement(
+        id=uuid.uuid4(),
+        jd_id=jd.id,
+        requirement_text="Enterprise experience deploying microservices on Kubernetes and Docker.",
+        canonical_skill_name="Docker",
+        category="technical_skill",
+        is_mandatory=False,
+    )
+    req_airflow = JDRequirement(
+        id=uuid.uuid4(),
+        jd_id=jd.id,
+        requirement_text="Authoring DAG workflows using Apache Airflow.",
+        canonical_skill_name="Airflow",
+        category="technical_skill",
+        is_mandatory=False,
+    )
+    jd.requirements = [req_pyspark, req_snowflake, req_docker, req_airflow]
+
+    # Candidate profile skills (Airflow is profile-listed only, not in experience bullets)
+    cand_skills = [
+        CandidateSkill(
+            user_id=user_id,
+            skill_name="Apache Airflow",
+            normalized_name="airflow",
+            category="Data Engineering",
+            is_user_verified=False,
+        )
+    ]
+
+    analysis = await content_intelligence.analyze_and_map(
+        resume=resume,
+        jd=jd,
+        candidate_skills=cand_skills,
+    )
+
+    all_mappings = {m["requirement_id"]: m for m in analysis["all_requirement_mappings"]}
+
+    # Adversarial Assertion 1: Python experience must NOT demonstrate PySpark
+    pyspark_map = all_mappings[str(req_pyspark.id)]
+    assert pyspark_map["match_category"] != "DEMONSTRATED", "FAIL: Python was falsely promoted to DEMONSTRATED PySpark!"
+    assert pyspark_map["match_category"] in ("TRANSFERABLE", "MISSING")
+    assert pyspark_map["confidence_score"] <= 0.60
+    assert pyspark_map["requires_human_verification"] is True
+
+    # Adversarial Assertion 2: SQL usage must NOT demonstrate Snowflake
+    snowflake_map = all_mappings[str(req_snowflake.id)]
+    assert snowflake_map["match_category"] != "DEMONSTRATED", "FAIL: SQL was falsely promoted to DEMONSTRATED Snowflake!"
+    assert snowflake_map["match_category"] == "MISSING"
+    assert snowflake_map["confidence_score"] == 0.0
+    assert any(m["requirement_id"] == str(req_snowflake.id) for m in analysis["missing_requirements"])
+
+    # Adversarial Assertion 3: Technology in an unrelated project must NOT prove professional employment experience
+    docker_map = all_mappings[str(req_docker.id)]
+    assert docker_map["match_category"] != "DEMONSTRATED", "FAIL: Project Docker was falsely promoted to DEMONSTRATED enterprise employment!"
+    assert docker_map["match_category"] == "TRANSFERABLE"
+    assert "project context" in docker_map["explanation"].lower()
+    assert docker_map["requires_human_verification"] is True
+
+    # Adversarial Assertion 4: Skill listed only in a profile must remain PROFILE_LISTED
+    airflow_map = all_mappings[str(req_airflow.id)]
+    assert airflow_map["match_category"] == "PROFILE_LISTED"
+    assert "lacks supporting achievement bullet" in airflow_map["explanation"].lower()
+    assert airflow_map["requires_human_verification"] is True

@@ -316,7 +316,7 @@ async def add_custom_evidence(
             requirement_id=payload.requirement_id,
             evidence_text=payload.evidence_text,
             section_name=payload.section_name,
-            match_category=payload.match_category,
+            evidence_url=payload.evidence_url,
         )
     except ValueError as exc:
         raise HTTPException(

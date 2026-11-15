@@ -10,6 +10,26 @@ from app.modules.matching.bm25 import BM25Index, tokenize
 from app.modules.matching.dense import dense_matcher
 from app.modules.ontology.normalizer import skill_normalizer
 
+APPLIED_ACTION_VERBS = {
+    "architected", "built", "created", "designed", "developed", "deployed",
+    "engineered", "established", "implemented", "improved", "launched",
+    "led", "managed", "optimized", "orchestrated", "reduced", "scaled",
+    "spearheaded", "streamlined", "automated", "delivered", "executed",
+    "migrated", "maintained", "configured", "administered", "profiled",
+    "monitored", "refactored", "integrated", "tested", "debugged",
+}
+
+INCIDENTAL_PATTERNS = [
+    r"\bfamiliar with\b",
+    r"\bexposure to\b",
+    r"\bknowledge of\b",
+    r"\bcollaborated with (?:the )?([a-z0-9_-]+ )?team\b",
+    r"\bassisted\b",
+    r"\binterested in\b",
+    r"\bstudied\b",
+    r"\bcoursework\b",
+]
+
 
 class RequirementEvidenceMapping:
     def __init__(
@@ -193,24 +213,36 @@ class ContentIntelligenceEngine:
         demonstrated_skills: list[str] = []
 
         for req in jd.requirements:
-            canonical = (req.canonical_skill_name or "").lower()
+            canonical = (req.canonical_skill_name or "").lower().strip()
             req_text = req.requirement_text
             best_snippet = None
             best_sim = 0.0
             matching_method = "UNMATCHED"
 
-            # Check direct ontology match in candidate snippets
+            # 1. Search for snippets containing exact skill/technology mention
+            exact_snippets = []
             if canonical:
                 for snip in candidate_snippets:
                     snip_lower = snip["text"].lower()
                     if re.search(rf"\b{re.escape(canonical)}\b", snip_lower):
-                        best_snippet = snip
-                        best_sim = 0.90
-                        matching_method = "ONTOLOGY_EXACT"
-                        break
+                        exact_snippets.append(snip)
 
-            # If no exact ontology match, try dense semantic matching
-            if not best_snippet and candidate_snippets:
+            if exact_snippets:
+                # Prioritize employment/experience over projects, over general skills
+                def _snip_rank(s: dict[str, Any]) -> int:
+                    stype = (s.get("section_type") or "").upper()
+                    if any(t in stype for t in ["EXPERIENCE", "WORK", "EMPLOYMENT", "INTERNSHIP"]):
+                        return 3
+                    if "PROJECT" in stype:
+                        return 2
+                    return 1
+
+                exact_snippets.sort(key=_snip_rank, reverse=True)
+                best_snippet = exact_snippets[0]
+                best_sim = 0.88
+                matching_method = "RESUME_DIRECT_EVIDENCE"
+            elif candidate_snippets:
+                # 2. Vector retrieval as a retrieval signal (NOT proof of demonstration)
                 sim, matched_text = await dense_matcher.find_best_evidence_match(
                     req_text, [s["text"] for s in candidate_snippets]
                 )
@@ -221,10 +253,10 @@ class ContentIntelligenceEngine:
                             best_snippet = s
                             break
                     matching_method = (
-                        "DENSE_OLLAMA" if is_ollama_available else "DENSE_HASH_FALLBACK"
+                        "DENSE_OLLAMA_NEURAL" if is_ollama_available else "LEXICAL_HASH_PROJECTION"
                     )
                 else:
-                    # Try lexical BM25 token overlap fallback
+                    # BM25 token overlap retrieval fallback
                     bm25 = BM25Index()
                     bm25.fit([s["text"] for s in candidate_snippets])
                     q_tokens = tokenize(req_text)
@@ -237,75 +269,99 @@ class ContentIntelligenceEngine:
                         if max_score > 0.15:
                             best_snippet = candidate_snippets[max_idx]
                             best_sim = min(
-                                0.85,
-                                round(0.40 + (max_score / (max_score + 1.0)) * 0.45, 2),
+                                0.65,
+                                round(0.40 + (max_score / (max_score + 1.0)) * 0.25, 2),
                             )
-                            matching_method = "LEXICAL_BM25_FALLBACK"
+                            matching_method = "LEXICAL_BM25"
 
-            # 4-Tier Classification
+            # 4-Tier Rigorous Classification
             match_category = "MISSING"
             explanation = ""
             requires_human_verification = False
             suggested_action = None
             verification_status = "UNMATCHED"
+            confidence_score = 0.0
 
             if best_snippet and best_sim >= 0.40:
-                sec_type = best_snippet.get("section_type", "")
-                is_experience_or_project = any(
-                    t in sec_type
-                    for t in ["EXPERIENCE", "WORK", "PROJECT", "INTERNSHIP", "LEADERSHIP"]
-                )
+                snip_lower = best_snippet["text"].lower()
+                sec_type = (best_snippet.get("section_type") or "").upper()
+                is_employment = any(t in sec_type for t in ["EXPERIENCE", "WORK", "EMPLOYMENT", "INTERNSHIP"])
+                is_project = "PROJECT" in sec_type
+                is_skills_sec = any(t in sec_type for t in ["SKILL", "COMPETENC", "TECHNOLOG", "PROFILE", "CERTIFIC"])
 
-                # Check verification status
+                # Verify exact skill presence in the candidate snippet
+                has_exact_skill = False
+                if canonical:
+                    has_exact_skill = bool(re.search(rf"\b{re.escape(canonical)}\b", snip_lower))
+
+                has_action_verb = any(v in snip_lower for v in APPLIED_ACTION_VERBS)
+                is_incidental = any(re.search(pat, snip_lower) for pat in INCIDENTAL_PATTERNS)
+
                 cand_skill = verified_skills_map.get(canonical) if canonical else None
-                if not cand_skill:
-                    extracted = skill_normalizer.extract_skills_from_text(best_snippet["text"])
-                    for ext in extracted:
-                        c_name = ext["canonical_name"].lower()
-                        if (
-                            c_name in verified_skills_map
-                            and verified_skills_map[c_name].is_user_verified
-                        ):
-                            cand_skill = verified_skills_map[c_name]
-                            break
-
                 verification_status = (
                     "CANDIDATE_VERIFIED"
                     if (cand_skill and cand_skill.is_user_verified)
                     else "EXTRACTED_UNCONFIRMED"
                 )
 
-                if is_experience_or_project and (best_sim >= 0.65 or matching_method == "ONTOLOGY_EXACT"):
+                if has_exact_skill and is_employment and has_action_verb and not is_incidental:
+                    # Verified direct employment demonstration
                     match_category = "DEMONSTRATED"
+                    confidence_score = min(0.95, max(0.85, best_sim))
                     explanation = (
-                        f"Directly demonstrated in {best_snippet['section_name']} "
-                        f"('{best_snippet.get('item_title') or best_snippet['section_name']}') with verified bullet evidence."
+                        f"Directly demonstrated in employment history ({best_snippet['section_name']} - "
+                        f"'{best_snippet.get('item_title') or best_snippet['section_name']}') with active engineering bullet evidence."
                     )
-                    requires_human_verification = best_sim < 0.70
+                    requires_human_verification = False
                     if canonical and canonical not in demonstrated_skills:
                         demonstrated_skills.append(canonical)
-                elif is_experience_or_project and best_sim >= 0.40:
+
+                elif has_exact_skill and is_employment and (is_incidental or not has_action_verb):
+                    # Incidental or passive mention in employment
                     match_category = "TRANSFERABLE"
+                    confidence_score = 0.60
                     explanation = (
-                        f"Related or transferable experience found in {best_snippet['section_name']} "
-                        f"(semantic similarity: {best_sim:.2f})."
+                        f"Mentioned in {best_snippet['section_name']}, but evidence reflects incidental or passive usage "
+                        f"rather than primary production engineering ownership."
                     )
                     requires_human_verification = True
-                    suggested_action = (
-                        f"Clarify how your experience with {best_snippet.get('item_title') or best_snippet['section_name']} "
-                        f"applies to {req.requirement_text}."
+                    suggested_action = f"Add achievement metrics demonstrating direct ownership and production impact with {canonical}."
+
+                elif has_exact_skill and is_project:
+                    # Academic or personal project context
+                    match_category = "TRANSFERABLE"
+                    confidence_score = 0.70
+                    explanation = (
+                        f"Demonstrated in project context ('{best_snippet.get('item_title') or best_snippet['section_name']}'). "
+                        "Demonstrates practical hands-on capability, but lacks documented enterprise employment history."
                     )
-                else:
-                    # In skills or education section without bullet evidence
+                    requires_human_verification = True
+                    suggested_action = f"Highlight production deployment, volume scale, and business impact for {canonical}."
+
+                elif has_exact_skill and is_skills_sec:
+                    # Listed in skills inventory without bullet achievement text
                     match_category = "PROFILE_LISTED"
+                    confidence_score = 0.50
                     explanation = (
-                        f"Found in {best_snippet['section_name']}, but lacks supporting achievement bullet "
-                        "in work experience or projects."
+                        f"Listed in {best_snippet['section_name']}, but lacks supporting achievement bullet in work experience or projects."
+                    )
+                    requires_human_verification = True
+                    suggested_action = f"Add work experience bullet points demonstrating {canonical} to upgrade to DEMONSTRATED."
+
+                else:
+                    # Related technology surfaced via dense/lexical similarity (e.g. Python for PySpark, SQL for Snowflake)
+                    match_category = "TRANSFERABLE"
+                    confidence_score = round(min(0.58, best_sim), 2)
+                    explanation = (
+                        f"Transferable foundation found in {best_snippet['section_name']} "
+                        f"('{best_snippet.get('item_title') or best_snippet['section_name']}'). "
+                        f"Candidate possesses related technical foundation (similarity {best_sim:.2f}), "
+                        f"but no direct evidence of applied {canonical or req_text}."
                     )
                     requires_human_verification = True
                     suggested_action = (
-                        f"Add project or work experience bullet points demonstrating {canonical or req_text} "
-                        "to upgrade to DEMONSTRATED."
+                        f"Clarify whether your experience with {best_snippet.get('item_title') or 'related technologies'} "
+                        f"included direct hands-on use of {canonical or req_text}."
                     )
 
                 mapping = RequirementEvidenceMapping(
@@ -320,7 +376,7 @@ class ContentIntelligenceEngine:
                     matched_bullet_index=best_snippet["bullet_index"],
                     original_evidence_text=best_snippet["text"],
                     matching_method=matching_method,
-                    confidence_score=best_sim,
+                    confidence_score=confidence_score,
                     verification_status=verification_status,
                     match_category=match_category,
                     explanation=explanation,
@@ -333,11 +389,11 @@ class ContentIntelligenceEngine:
                 snip_key = f"{best_snippet['section_id']}_{best_snippet['item_id']}_{best_snippet['bullet_index']}"
                 snippet_matched_reqs.setdefault(snip_key, []).append(req.id)
                 snippet_best_sim[snip_key] = max(
-                    snippet_best_sim.get(snip_key, 0.0), best_sim
+                    snippet_best_sim.get(snip_key, 0.0), confidence_score
                 )
 
             else:
-                # Check if skill exists in candidate profile skills
+                # Check candidate profile skills
                 cand_skill = verified_skills_map.get(canonical) if canonical else None
                 if not cand_skill:
                     for s_norm, s_obj in verified_skills_map.items():
@@ -348,20 +404,20 @@ class ContentIntelligenceEngine:
 
                 if cand_skill:
                     match_category = "PROFILE_LISTED"
-                    matching_method = "PROFILE_SKILL_MATCH"
-                    best_sim = 0.60
+                    matching_method = "PROFILE_SKILL_INVENTORY"
+                    confidence_score = 0.50
                     verification_status = (
                         "CANDIDATE_VERIFIED"
                         if cand_skill.is_user_verified
                         else "EXTRACTED_UNCONFIRMED"
                     )
                     explanation = (
-                        f"Found in candidate skills inventory ('{cand_skill.skill_name}'), "
+                        f"Found in candidate profile skills ('{cand_skill.skill_name}'), "
                         "but lacks supporting achievement bullet in work experience or projects."
                     )
                     requires_human_verification = True
                     suggested_action = (
-                        f"Add project or work experience bullet points demonstrating {cand_skill.skill_name} "
+                        f"Add work experience or project bullet points demonstrating {cand_skill.skill_name} "
                         "to upgrade to DEMONSTRATED."
                     )
 
@@ -375,9 +431,9 @@ class ContentIntelligenceEngine:
                         matched_section_name="Master Skills Profile",
                         matched_item_id=None,
                         matched_bullet_index=None,
-                        original_evidence_text=f"Candidate Profile: {cand_skill.skill_name} ({cand_skill.proficiency_level})",
+                        original_evidence_text=f"Candidate Profile: {cand_skill.skill_name} ({cand_skill.proficiency_level or 'developing'})",
                         matching_method=matching_method,
-                        confidence_score=best_sim,
+                        confidence_score=confidence_score,
                         verification_status=verification_status,
                         match_category=match_category,
                         explanation=explanation,

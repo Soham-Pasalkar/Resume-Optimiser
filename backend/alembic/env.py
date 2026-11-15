@@ -19,7 +19,15 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return str(settings.DATABASE_URL)
+    url = config.get_main_option("sqlalchemy.url")
+    if not url:
+        url = str(settings.DATABASE_URL)
+    # Ensure async driver for async_engine_from_config
+    if url.startswith("sqlite:///") and "+aiosqlite" not in url:
+        url = url.replace("sqlite:///", "sqlite+aiosqlite:///")
+    elif url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://")
+    return url
 
 
 def run_migrations_offline() -> None:

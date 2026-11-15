@@ -39,7 +39,54 @@ class ResumeComposer:
             itm_id = d.item_id or ""
             diff_by_coord[(sec_id, itm_id, d.bullet_index)] = d
 
-        sections_input = content.get("sections", [])
+        sections_input = list(content.get("sections", []))
+        role_summary = (content.get("role_summary") or "").strip()
+
+        # Insert or update role-aligned professional summary section
+        if role_summary:
+            existing_summary = next(
+                (
+                    s
+                    for s in sections_input
+                    if (s.get("section_type") or "").upper() == "SUMMARY"
+                    or "summary" in (s.get("heading") or "").lower()
+                ),
+                None,
+            )
+            if existing_summary:
+                existing_summary["raw_content"] = role_summary
+                existing_summary["selection_reason"] = "Role-aligned professional summary synthesized from verified competencies."
+            else:
+                sections_input.insert(
+                    0,
+                    {
+                        "id": "sec_role_summary",
+                        "section_type": "SUMMARY",
+                        "heading": "Professional Summary",
+                        "is_included": True,
+                        "display_order": 1,
+                        "raw_content": role_summary,
+                        "items": [],
+                        "selection_reason": "Role-aligned professional summary synthesized from verified candidate competencies.",
+                    },
+                )
+
+        SECTION_PRIORITY = {
+            "SUMMARY": 1,
+            "SKILLS": 2,
+            "EXPERIENCE": 3,
+            "WORK": 3,
+            "PROJECTS": 4,
+            "PROJECT": 4,
+            "EDUCATION": 5,
+            "CERTIFICATIONS": 6,
+            "CERTIFICATION": 6,
+            "ACHIEVEMENTS": 7,
+            "PUBLICATIONS": 8,
+            "LEADERSHIP": 9,
+            "GENERAL": 10,
+        }
+
         composed_sections: list[dict[str, Any]] = []
         provenance_records: list[dict[str, Any]] = []
 
@@ -51,9 +98,16 @@ class ResumeComposer:
         for sec_idx, sec in enumerate(sections_input):
             sec_id = str(sec.get("id") or f"sec_{sec_idx}")
             is_included = sec.get("is_included", True)
-            display_order = sec.get("display_order", sec_idx + 1)
-            sec_type = sec.get("section_type", "GENERAL")
+            sec_type = (sec.get("section_type") or "GENERAL").upper()
             heading = sec.get("heading") or sec_type.title()
+
+            # Assign natural ATS priority order if display_order is default sequential
+            default_prio = SECTION_PRIORITY.get(sec_type, 10)
+            display_order = sec.get("display_order", default_prio)
+
+            section_reason = sec.get("selection_reason") or (
+                f"Curated {heading} section aligned with target opportunity requirements."
+            )
 
             composed_items: list[dict[str, Any]] = []
 
@@ -96,7 +150,6 @@ class ResumeComposer:
                             source_status = "REJECTED_ORIGINAL"
                             rejected_diffs += 1
                         else:  # PENDING
-                            # Preview optimized text in draft IR while tracking pending status
                             final_text = diff.original_text
                             source_status = "PENDING_ORIGINAL"
 
@@ -109,6 +162,11 @@ class ResumeComposer:
                             "diff_id": diff_id,
                             "requirement_id": req_id,
                             "validation_status": nli_status,
+                            "provenance": (
+                                f"Action-aligned tailored bullet targeting requirement {req_id}"
+                                if diff and diff.status == "ACCEPTED"
+                                else "Verified authentic candidate resume bullet"
+                            ),
                         }
                     )
 
@@ -129,6 +187,11 @@ class ResumeComposer:
                     )
 
                 desc = item.get("description") or item.get("text") or ""
+                item_reason = (
+                    f"Verified {title or 'career experience'} demonstrating applied competencies."
+                    if composed_bullets
+                    else "Original candidate career record preserved without data loss."
+                )
 
                 composed_items.append(
                     {
@@ -142,6 +205,7 @@ class ResumeComposer:
                         "description": desc,
                         "bullets": composed_bullets,
                         "rendered_bullets": [b["text"] for b in composed_bullets],
+                        "selection_reason": item_reason,
                     }
                 )
 
@@ -152,6 +216,7 @@ class ResumeComposer:
                     "heading": heading,
                     "is_included": is_included,
                     "display_order": display_order,
+                    "selection_reason": section_reason,
                     "items": composed_items,
                     "raw_content": sec.get("raw_content"),
                 }
@@ -184,6 +249,7 @@ class ResumeComposer:
                 "heading": sec["heading"],
                 "display_order": sec["display_order"],
                 "raw_content": sec["raw_content"],
+                "selection_reason": sec.get("selection_reason", ""),
                 "items": [
                     {
                         "id": itm["id"],
@@ -195,6 +261,7 @@ class ResumeComposer:
                         "is_current": itm["is_current"],
                         "description": itm.get("description", ""),
                         "bullets": itm["rendered_bullets"],
+                        "selection_reason": itm.get("selection_reason", ""),
                     }
                     for itm in sec["items"]
                 ],

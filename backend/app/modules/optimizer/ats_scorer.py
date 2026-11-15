@@ -219,17 +219,19 @@ class ATSEvaluator:
         ]
 
         # 1. Standard Headings (Max: 20)
-        found_categories = 0
+        found_cats: list[str] = []
+        missing_cats: list[str] = []
         for cat, aliases in self.STANDARD_HEADINGS.items():
             if any(any(alias in h for alias in aliases) for h in headings_lower):
-                found_categories += 1
+                found_cats.append(cat.title())
+            else:
+                missing_cats.append(cat.title())
 
-        headings_score = min(20.0, (found_categories / 4.0) * 20.0)
-        breakdown["standard_headings"] = round(headings_score, 1)
-        if found_categories >= 4:
-            findings.append(f"Standard ATS section headings detected ({found_categories}/6 categories).")
-        else:
-            findings.append("Add standard headings (e.g. Experience, Education, Skills) for optimal ATS classification.")
+        headings_score = round((len(found_cats) / 6.0) * 20.0, 1)
+        breakdown["standard_headings"] = headings_score
+        findings.append(f"Standard ATS section headings detected ({len(found_cats)}/6 categories: {', '.join(found_cats)}).")
+        if missing_cats:
+            findings.append(f"Standard categories not detected: {', '.join(missing_cats)}.")
 
         # 2. Contact Information Completeness (Max: 15)
         contact_score = 0.0
@@ -257,16 +259,39 @@ class ATSEvaluator:
         structure_score = 0.0
         if len(sections) >= 3:
             structure_score += 5.0
-        # Check single column (clean flat sections)
-        if all("items" in s or "raw_content" in s for s in sections):
-            structure_score += 5.0
-        # Summary or skills placed high
+        # Summary or skills placed high in hierarchy
         first_headings = headings_lower[:2]
         if any(any(a in h for a in self.STANDARD_HEADINGS["summary"] + self.STANDARD_HEADINGS["skills"]) for h in first_headings):
             structure_score += 5.0
 
+        # Physical layout geometry validation
+        is_single_column = True
+        if document_bytes and file_format.lower() == "pdf":
+            try:
+                with pdfplumber.open(io.BytesIO(document_bytes)) as pdf:
+                    for page in pdf.pages:
+                        words = page.extract_words()
+                        y_lines: dict[int, list[float]] = {}
+                        for w in words:
+                            y_bucket = int(w["top"] // 10) * 10
+                            y_lines.setdefault(y_bucket, []).append(w["x0"])
+                        for y_val, x_positions in y_lines.items():
+                            has_left = any(x < 200 for x in x_positions)
+                            has_right = any(x > 380 for x in x_positions)
+                            has_middle_gap = not any(230 <= x <= 350 for x in x_positions)
+                            if has_left and has_right and has_middle_gap and len(x_positions) >= 6:
+                                is_single_column = False
+                                break
+            except Exception:
+                pass
+
+        if is_single_column:
+            structure_score += 5.0
+            findings.append("Single-column linear hierarchy verified against document layout geometry.")
+        else:
+            findings.append("Multi-column layout detected; single-column format recommended for optimal ATS traversal.")
+
         breakdown["document_structure"] = round(structure_score, 1)
-        findings.append("Single-column linear hierarchy ensures error-free ATS traversal.")
 
         # 4. Date Consistency (Max: 15)
         items_with_dates = 0
@@ -283,14 +308,15 @@ class ATSEvaluator:
                         items_with_dates += 1
 
         if total_exp_items == 0:
-            date_score = 15.0
+            date_score = 0.0
+            findings.append("No career history or education items present to evaluate date consistency.")
         else:
             date_score = (items_with_dates / total_exp_items) * 15.0
+            if date_score >= 12.0:
+                findings.append("Consistent chronological date ranges verified across career records.")
+            else:
+                findings.append(f"Only {items_with_dates} of {total_exp_items} career items contain standard date ranges.")
         breakdown["date_consistency"] = round(date_score, 1)
-        if date_score >= 12.0:
-            findings.append("Standard date formats present across all career history records.")
-        else:
-            findings.append("Format all experience and education items with clear Start/End dates (e.g., 2021 - Present).")
 
         # 5. Bullet Clarity & Action Verbs (Max: 15)
         total_bullets = 0
@@ -311,23 +337,43 @@ class ATSEvaluator:
                         action_verb_bullets += 1
 
         if total_bullets == 0:
-            bullet_score = 10.0
+            bullet_score = 0.0
+            findings.append("No achievement bullets found across experience or project records.")
         else:
             action_ratio = action_verb_bullets / total_bullets
             len_ratio = length_compliant_bullets / total_bullets
             bullet_score = min(15.0, (action_ratio * 7.5) + (len_ratio * 7.5))
+            if bullet_score >= 10.0:
+                findings.append(f"Strong action-verb phrasing across {total_bullets} bullet point(s) ({action_verb_bullets} with active verbs).")
+            else:
+                findings.append("Begin achievement bullets with strong action verbs (e.g. Architected, Engineered, Optimized).")
 
         breakdown["bullet_clarity"] = round(bullet_score, 1)
-        if bullet_score >= 10.0:
-            findings.append(f"Strong action-verb phrasing across {total_bullets} bullet point(s).")
-        else:
-            findings.append("Begin achievement bullets with strong action verbs (e.g. Architected, Engineered, Optimized).")
 
-        # 6. Real Text Extraction Validation (Max: 20)
+        # 6. Real Text Extraction & Content Coverage Validation (Max: 20)
+        expected_terms: set[str] = set()
+        for part in [name or "", contact_str or ""]:
+            for token in part.split():
+                clean = re.sub(r"[^\w]", "", token.lower())
+                if len(clean) >= 4:
+                    expected_terms.add(clean)
+        for sec in sections:
+            for itm in sec.get("items", []):
+                for field in [itm.get("title") or "", itm.get("organization") or ""]:
+                    for token in field.split():
+                        clean = re.sub(r"[^\w]", "", token.lower())
+                        if len(clean) >= 4:
+                            expected_terms.add(clean)
+                for b in itm.get("bullets", []):
+                    for token in str(b).split():
+                        clean = re.sub(r"[^\w]", "", token.lower())
+                        if len(clean) >= 5:
+                            expected_terms.add(clean)
+
         extracted_text = ""
         extracted_char_count = 0
         page_count = 1
-        extraction_success = False
+        coverage_pct = 0.0
 
         if document_bytes:
             try:
@@ -337,29 +383,37 @@ class ATSEvaluator:
                         extracted_pages = [page.extract_text() or "" for page in pdf.pages]
                         extracted_text = "\n".join(extracted_pages).strip()
                         extracted_char_count = len(extracted_text)
-                        if extracted_char_count > 100:
-                            extraction_success = True
                 elif file_format.lower() == "docx":
                     doc = docx.Document(io.BytesIO(document_bytes))
                     extracted_text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
                     extracted_char_count = len(extracted_text)
-                    if extracted_char_count > 100:
-                        extraction_success = True
             except Exception as exc:
                 findings.append(f"Text extraction warning: {exc!s}")
 
-        if extraction_success:
-            breakdown["text_extraction_validation"] = 20.0
+        if extracted_char_count > 50 and expected_terms:
+            extracted_lower = extracted_text.lower()
+            matched_terms = sum(1 for term in expected_terms if term in extracted_lower)
+            coverage_pct = (matched_terms / len(expected_terms)) * 100.0
+
+            if coverage_pct >= 80.0:
+                extract_score = 20.0
+            elif coverage_pct >= 65.0:
+                extract_score = 15.0
+            elif coverage_pct >= 45.0:
+                extract_score = 10.0
+            else:
+                extract_score = 5.0
+
+            breakdown["text_extraction_validation"] = extract_score
             findings.append(
-                f"Verified byte-level text extraction ({extracted_char_count} chars across {page_count} page(s)). Zero rasterization or font corruption."
+                f"Verified byte-level text extraction with {coverage_pct:.1f}% expected content coverage ({extracted_char_count} chars across {page_count} page(s))."
             )
         elif document_bytes:
-            breakdown["text_extraction_validation"] = 5.0
-            findings.append("Document bytes extraction yielded low or empty character count.")
+            breakdown["text_extraction_validation"] = 3.0
+            findings.append("Document extraction yielded negligible character count.")
         else:
-            # When no bytes passed yet, evaluate from structured IR text
-            ir_chars = sum(len(b) for sec in sections for itm in sec.get("items", []) for b in itm.get("bullets", []))
-            breakdown["text_extraction_validation"] = 20.0 if ir_chars > 100 else 10.0
+            ir_chars = sum(len(str(b)) for sec in sections for itm in sec.get("items", []) for b in itm.get("bullets", []))
+            breakdown["text_extraction_validation"] = 15.0 if ir_chars > 100 else 5.0
             findings.append("Structured text ready for clean PDF/DOCX compiler extraction.")
 
         total_readability = round(
@@ -374,8 +428,9 @@ class ATSEvaluator:
             "page_count": page_count,
             "findings": findings,
             "disclaimer": (
-                "CareerPilot Algorithmic Readability Index measuring structural compliance with standard "
-                "enterprise ATS parsers (Taleo, Workday, Greenhouse, Lever)."
+                "CareerPilot Algorithmic Readability Index measuring machine-readability, linear formatting, "
+                "and text extraction compliance against standard ATS specifications. Algorithmic estimate; "
+                "not an official guarantee for any third-party ATS software."
             ),
         }
 

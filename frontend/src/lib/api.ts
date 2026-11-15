@@ -949,7 +949,7 @@ export async function addCustomEvidence(
     requirement_id: string;
     evidence_text: string;
     section_name?: string;
-    match_category?: string;
+    evidence_url?: string;
   }
 ): Promise<TailoredResume> {
   const res = await fetch(`${API_BASE}/optimizer/tailored-resumes/${tailoredId}/custom-evidence`, {
@@ -1031,6 +1031,7 @@ export interface LearningMilestone {
   estimated_hours?: number;
   completed_evidence?: Record<string, any> | null;
   evidence_verified?: boolean;
+  verification_status?: string;
   is_completed: boolean;
   created_at: string;
 }

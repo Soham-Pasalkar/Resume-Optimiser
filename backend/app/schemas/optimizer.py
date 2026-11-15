@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TailorResumeRequest(BaseModel):
@@ -108,8 +108,19 @@ class ATSAnalysisResponse(BaseModel):
 class CustomEvidenceRequest(BaseModel):
     requirement_id: uuid.UUID
     evidence_text: str = Field(..., min_length=5, description="Factual candidate evidence supporting this requirement")
-    section_name: str = "Master Profile Evidence"
-    match_category: str = Field(default="DEMONSTRATED", description="DEMONSTRATED or TRANSFERABLE")
+    section_name: str = "Candidate Self-Attestation"
+    evidence_url: str | None = None
+
+    @field_validator("evidence_url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if not v:
+            return None
+        import urllib.parse
+        parsed = urllib.parse.urlparse(v.strip())
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(f"Invalid evidence URL '{v}'. Must be a valid HTTP or HTTPS URL.")
+        return v.strip()
 
 
 class MissingRequirementResponse(BaseModel):
