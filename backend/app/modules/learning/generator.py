@@ -95,6 +95,130 @@ CURATED_DOMAINS: dict[str, dict[str, Any]] = {
         "project": "Deploy an automated Terraform configuration provisioning an isolated VPC, RDS Multi-AZ instance, and Application Load Balancer.",
         "hours": 24,
     },
+    "python": {
+        "title": "High-Performance Asynchronous Python & FastAPI Architecture",
+        "desc": "Master Python 3.12+ concurrency, asyncio event loops, pydantic validation models, and pytest fixtures.",
+        "resources": [
+            {
+                "title": "Python Official Documentation",
+                "url": "https://docs.python.org/3/",
+                "type": "Documentation",
+            },
+            {
+                "title": "FastAPI Production Guide",
+                "url": "https://fastapi.tiangolo.com/tutorial/",
+                "type": "Interactive Tutorial",
+            },
+        ],
+        "project": "Build an async REST microservice handling 5,000 req/sec with connection pooling, JWT auth, and 90%+ pytest test coverage.",
+        "hours": 16,
+    },
+    "typescript": {
+        "title": "Advanced Type-Safe Architecture with TypeScript",
+        "desc": "Master conditional types, template literal types, mapped types, and strict compiler flag configurations.",
+        "resources": [
+            {
+                "title": "TypeScript Official Handbook",
+                "url": "https://www.typescriptlang.org/docs/handbook/intro.html",
+                "type": "Documentation",
+            },
+            {
+                "title": "Total TypeScript Reference",
+                "url": "https://www.totaltypescript.com/tutorials",
+                "type": "Interactive Tutorial",
+            },
+        ],
+        "project": "Create an end-to-end type-safe API client and validation schema library using Zod and generic mapped interfaces.",
+        "hours": 14,
+    },
+    "react": {
+        "title": "Production React 19 & Next.js Full-Stack Architecture",
+        "desc": "Master React Server Components (RSC), App Router conventions, streaming SSR, and optimistic UI updates.",
+        "resources": [
+            {
+                "title": "React Official Documentation",
+                "url": "https://react.dev/",
+                "type": "Documentation",
+            },
+            {
+                "title": "Next.js App Router Guide",
+                "url": "https://nextjs.org/docs/app",
+                "type": "Framework Guide",
+            },
+        ],
+        "project": "Architect a server-rendered dashboard with real-time WebSocket state synchronization and WCAG AA accessibility.",
+        "hours": 18,
+    },
+    "go": {
+        "title": "Concurrent Cloud-Native Systems with Go",
+        "desc": "Master goroutines, buffered channels, sync.WaitGroup, context cancellation, and idiomatic interface design.",
+        "resources": [
+            {
+                "title": "Go Documentation & Standard Library",
+                "url": "https://go.dev/doc/",
+                "type": "Documentation",
+            },
+            {
+                "title": "Learn Go with Tests",
+                "url": "https://quii.gitbook.io/learn-go-with-tests/",
+                "type": "Interactive Guide",
+            },
+        ],
+        "project": "Build a distributed worker pool processing async background jobs with rate limiting, graceful shutdown, and prometheus metrics.",
+        "hours": 20,
+    },
+    "redis": {
+        "title": "Distributed Caching & In-Memory Data Topologies with Redis",
+        "desc": "Implement cache-aside, write-through strategies, Redis Streams, pub/sub messaging, and distributed Redlock primitives.",
+        "resources": [
+            {
+                "title": "Redis University & Documentation",
+                "url": "https://redis.io/docs/latest/",
+                "type": "Documentation",
+            },
+        ],
+        "project": "Design a distributed sliding-window rate limiter and session storage layer ensuring sub-1ms response times under load.",
+        "hours": 12,
+    },
+    "spark": {
+        "title": "Large-Scale Distributed Analytics with Apache Spark",
+        "desc": "Master Spark DataFrame APIs, catalyst optimizer, shuffle partitions, broadcast joins, and delta lake tables.",
+        "resources": [
+            {
+                "title": "Apache Spark Programming Guide",
+                "url": "https://spark.apache.org/docs/latest/programming-guide.html",
+                "type": "Documentation",
+            },
+        ],
+        "project": "Build a PySpark ETL pipeline processing 50M records with skew mitigation, columnar Parquet partitioning, and data quality checks.",
+        "hours": 22,
+    },
+    "airflow": {
+        "title": "Production Orchestration with Apache Airflow",
+        "desc": "Author robust DAGs, custom operators, dynamic task mapping, SLA alerts, and idempotent backfill pipelines.",
+        "resources": [
+            {
+                "title": "Apache Airflow Official Documentation",
+                "url": "https://airflow.apache.org/docs/apache-airflow/stable/index.html",
+                "type": "Documentation",
+            },
+        ],
+        "project": "Implement a modular ELT workflow orchestrating BigQuery transformations with retry policies, Slack alerting, and data lineage.",
+        "hours": 16,
+    },
+    "terraform": {
+        "title": "Cloud Infrastructure as Code with HashiCorp Terraform",
+        "desc": "Master HCL module design, remote state locking with S3/DynamoDB, workspace isolation, and drift detection.",
+        "resources": [
+            {
+                "title": "Terraform Official Tutorials",
+                "url": "https://developer.hashicorp.com/terraform/tutorials",
+                "type": "Tutorial",
+            },
+        ],
+        "project": "Author reusable Terraform modules deploying a production Kubernetes cluster with auto-scaling node pools and security policies.",
+        "hours": 18,
+    },
 }
 
 
@@ -209,6 +333,8 @@ Return ONLY valid JSON.
                 total_hours += bp["hours"]
             else:
                 skill_name = req.canonical_skill_name or req.requirement_text[:30]
+                clean_req = req.requirement_text.rstrip(".")
+                doc_query = skill_name.lower().replace(" ", "+")
                 milestones.append(
                     {
                         "sequence_order": order,
@@ -217,17 +343,17 @@ Return ONLY valid JSON.
                         "description": f"Master the core operational principles, best practices, and integration patterns for {skill_name} as required for the {target_role} role.",
                         "curated_resources": [
                             {
-                                "title": f"{skill_name} Official Reference",
-                                "url": "https://devdocs.io/",
-                                "type": "Documentation",
+                                "title": f"{skill_name} Reference Guide",
+                                "url": f"https://developer.mozilla.org/en-US/search?q={doc_query}",
+                                "type": "Documentation & Standards",
                             },
                             {
-                                "title": "Production Engineering Best Practices",
+                                "title": "System Architecture Best Practices",
                                 "url": "https://github.com/donnemartin/system-design-primer",
                                 "type": "Architecture Guide",
                             },
                         ],
-                        "practical_project_brief": f"Build a production-ready reference service demonstrating {skill_name} integration with automated test coverage and health check endpoints.",
+                        "practical_project_brief": f"Engineer a working reference deliverable directly demonstrating '{clean_req}' with unit test coverage, containerization, and structured logging.",
                     }
                 )
                 total_hours += 15

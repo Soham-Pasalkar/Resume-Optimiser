@@ -116,12 +116,14 @@ async def test_interview_prompt_generator_questions():
     assert types.count("BEHAVIORAL_STAR") == 3
     assert types.count("GAP_DEFENSE") == 3
 
-    # Verify STAR guidelines for behavioral questions
+    # Verify STAR guidelines for behavioral questions provide authentic framing guidance rather than fabricated stories
     star_qs = [q for q in questions if q["question_type"] == "BEHAVIORAL_STAR"]
     for q in star_qs:
         assert "situation" in q["star_guidelines"]
         assert "action" in q["star_guidelines"]
         assert "result" in q["star_guidelines"]
+        assert "authentic" in q["star_guidelines"]["situation"].lower()
+        assert "gRPC" not in q["star_guidelines"]["situation"]
 
     # Verify gap defense question addresses Kafka
     gap_qs = [q for q in questions if q["question_type"] == "GAP_DEFENSE"]

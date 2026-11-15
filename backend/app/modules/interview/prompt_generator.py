@@ -191,10 +191,10 @@ Return ONLY valid JSON.
                 "target_skill_or_gap": "Technical Leadership & Collaboration",
                 "evaluation_criteria": "Objective benchmarking, data-driven compromise, ego-free communication, and committing to the final team decision.",
                 "star_guidelines": {
-                    "situation": "Disagreement over choosing REST vs gRPC for internal service communications",
-                    "task": "Align on an architecture that met team delivery speed and latency SLAs",
-                    "action": "Built quick proof-of-concept benchmarks and evaluated operational complexity with team",
-                    "result": "Agreed on pragmatic path; team hit launch deadline 2 weeks ahead of schedule",
+                    "situation": "Select an authentic scenario from your career where engineers or stakeholders held competing technical approaches.",
+                    "task": "Define your objective: resolving the impasse constructively while balancing engineering quality with delivery deadlines.",
+                    "action": "Explain your approach: gathering benchmark data, building a lightweight proof-of-concept, and listening actively to align on consensus.",
+                    "result": "Share the real outcome: the technical decision reached, what the team learned, and how collaboration was strengthened.",
                 },
             }
         )
@@ -205,10 +205,10 @@ Return ONLY valid JSON.
                 "target_skill_or_gap": "Incident Management & Ownership",
                 "evaluation_criteria": "Decisive incident response, clear stakeholder communication, blameless post-mortem, and permanent automated prevention.",
                 "star_guidelines": {
-                    "situation": "Authentication service unresponsive during morning traffic peak",
-                    "task": "Restore service availability rapidly and identify root cause",
-                    "action": "Rolled back bad deploy, scaled connection pool, authored comprehensive post-mortem",
-                    "result": "Service restored in 7 minutes; added canary gating to prevent recurrence",
+                    "situation": "Pick an authentic production incident or high-priority system degradation you encountered in a past role.",
+                    "task": "Describe your immediate responsibility: mitigating user impact and isolating the root cause under pressure.",
+                    "action": "Detail your systematic steps: telemetry inspection, rolling back or hotfixing, and maintaining calm, transparent communication.",
+                    "result": "Articulate the resolution: downtime minimized, permanent regression safeguards added, and blameless post-mortem takeaways.",
                 },
             }
         )
@@ -219,10 +219,10 @@ Return ONLY valid JSON.
                 "target_skill_or_gap": "Adaptability & Execution",
                 "evaluation_criteria": "Proactive requirement scoping, modular architecture, and incremental iterative delivery.",
                 "star_guidelines": {
-                    "situation": "Product specifications shifting weekly during prototype phase",
-                    "task": "Deliver core functional MVP on an aggressive 4-week deadline",
-                    "action": "Modularized core domain boundaries and established bi-weekly milestone syncs",
-                    "result": "Shipped MVP on schedule, onboarded first 50 enterprise pilots",
+                    "situation": "Recall an authentic project where business scope or technical constraints evolved significantly during development.",
+                    "task": "Explain your responsibility: de-risking the critical path and maintaining delivery velocity despite ambiguity.",
+                    "action": "Describe how you adapted: decoupling system components, designing backwards-compatible interfaces, and driving rapid milestone syncs.",
+                    "result": "Explain the final deliverable: successful launch, reduced rework, and established stakeholder trust.",
                 },
             }
         )
