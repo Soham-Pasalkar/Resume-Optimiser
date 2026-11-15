@@ -95,6 +95,10 @@ class DenseMatcher:
                 best_sim = sim
                 best_snippet = snippet
 
+        # Cutoff to prevent attaching unrelated snippets as evidence
+        if best_sim < 0.40:
+            return round(best_sim, 3), None
+
         return round(best_sim, 3), best_snippet
 
 

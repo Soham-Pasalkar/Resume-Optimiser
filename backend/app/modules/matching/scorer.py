@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from app.models.candidate import CandidateSkill
@@ -57,20 +58,26 @@ class HybridMatchingEngine:
         jd: JobDescription,
         candidate_skills: list[CandidateSkill],
     ) -> ScoringResult:
-        # 1. Gather all resume textual chunks and snippets
+        # 1. Gather granular atomic resume textual chunks (bullets and distinct lines only; never entire sections)
         resume_chunks: list[str] = []
         for section in resume.sections:
+            heading = section.heading or "Experience"
             for item in section.items:
-                prefix = f"{item.title} at {item.organization or 'Company'}: "
+                prefix = f"[{item.title} at {item.organization or 'Company'}] " if item.title else ""
                 for bullet in item.bullets or []:
                     bullet_text = bullet if isinstance(bullet, str) else str(bullet)
-                    if bullet_text.strip():
-                        resume_chunks.append(f"{prefix}{bullet_text.strip()}")
-            if section.raw_content and section.raw_content.strip():
-                resume_chunks.append(section.raw_content.strip())
+                    clean_b = bullet_text.strip()
+                    if clean_b:
+                        resume_chunks.append(f"{prefix}{clean_b}")
+            # For sections without items or skills lists, split by lines/bullets, never the entire multi-line section
+            if section.raw_content and not section.items:
+                lines = [ln.strip().lstrip("•-* ").strip() for ln in section.raw_content.splitlines() if ln.strip()]
+                for ln in lines:
+                    if len(ln) >= 5:
+                        resume_chunks.append(f"[{heading}] {ln}")
 
         if not resume_chunks:
-            resume_chunks = [resume.raw_text]
+            resume_chunks = [s.strip() for s in re.split(r"[\n.]+", resume.raw_text or "") if len(s.strip()) > 10]
 
         # 2. Fit BM25 Index
         bm25_index = BM25Index()
@@ -143,11 +150,16 @@ class HybridMatchingEngine:
             elif not req.is_mandatory and match_ratio >= 0.7:
                 preferred_matched += 1
 
-            evidence_text = (
-                direct_skill.evidence_text
-                if direct_skill and direct_skill.evidence_text
-                else best_snippet
-            )
+            evidence_text = None
+            if direct_skill and direct_skill.evidence_text:
+                evidence_text = direct_skill.evidence_text
+            elif best_sim >= 0.48 and best_snippet:
+                evidence_text = best_snippet[:220].strip()
+                if len(best_snippet) > 220:
+                    evidence_text += "..."
+
+            if status == "NOT_DEMONSTRATED":
+                evidence_text = None
 
             gap_evaluations.append(
                 {
@@ -157,7 +169,7 @@ class HybridMatchingEngine:
                     "is_mandatory": req.is_mandatory,
                     "status": status,
                     "gap_severity": severity,
-                    "evidence_snippet": evidence_text if status != "NOT_DEMONSTRATED" else None,
+                    "evidence_snippet": evidence_text,
                     "similarity_score": best_sim,
                     "suggested_action": suggested_action,
                     "is_resolved": bool(direct_skill and direct_skill.is_user_verified),
@@ -250,24 +262,29 @@ class HybridMatchingEngine:
     ) -> tuple[str, str, float, str]:
         """Classifies requirement gap into 4 tiers and assigns severity and action."""
         if direct_skill:
-            if direct_skill.is_user_verified or direct_skill.evidence_text or best_sim >= 0.60:
+            if direct_skill.is_user_verified:
                 status = "DEMONSTRATED"
                 severity = "LOW"
                 ratio = 1.0
                 action = (
-                    f"Verified alignment with candidate competency '{direct_skill.skill_name}'."
+                    f"Candidate-verified alignment with competency '{direct_skill.skill_name}'."
                 )
+            elif direct_skill.evidence_text or best_sim >= 0.55:
+                status = "DEMONSTRATED"
+                severity = "LOW"
+                ratio = 0.90
+                action = f"Extracted from resume evidence for '{direct_skill.skill_name}' (candidate verification recommended)."
             else:
                 status = "REQUIRES_VERIFICATION"
                 severity = "MODERATE" if req.is_mandatory else "LOW"
-                ratio = 0.85
-                action = f"Confirm your practical proficiency and experience depth with {direct_skill.skill_name}."
+                ratio = 0.75
+                action = f"Skill '{direct_skill.skill_name}' found in profile, but lacks direct evidence in work history. Verify your experience."
         elif best_sim >= 0.60:
             status = "DEMONSTRATED"
             severity = "LOW"
             ratio = 0.90
             action = "Strong textual and technical evidence found in work history."
-        elif best_sim >= 0.40:
+        elif best_sim >= 0.45:
             status = "PARTIAL"
             severity = "MODERATE" if req.is_mandatory else "LOW"
             ratio = 0.60

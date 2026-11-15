@@ -97,6 +97,31 @@ async def test_jd_extractor_rule_based_decomposition():
 
 
 @pytest.mark.asyncio
+async def test_jd_extractor_narrative_paragraph_decomposition():
+    narrative_jd = """
+    Job Title: Staff Infrastructure Architect
+    Acme Corp is looking for a Staff Infrastructure Architect. You will be responsible for leading our distributed systems migration on AWS and Kubernetes.
+    The ideal candidate must have at least 7 years of hands-on experience designing fault-tolerant cloud backends in Go and Python.
+    You will lead technical architecture reviews and mentor junior engineers across engineering.
+    Experience with Apache Kafka and Redis is a plus.
+    """
+    decomposed = await jd_extractor.extract(narrative_jd)
+
+    assert "Staff Infrastructure Architect" in decomposed.job_title
+    assert len(decomposed.requirements) >= 3
+
+    # Ensure requirements are extracted verbatim from paragraphs rather than synthetic generic phrases
+    req_texts = [r.requirement_text for r in decomposed.requirements]
+    assert any("7 years" in t or "hands-on experience" in t for t in req_texts)
+    assert any("Kafka" in t or "Redis" in t for t in req_texts)
+
+    # Check that "is a plus" was classified as preferred
+    kafka_req = next((r for r in decomposed.requirements if "Kafka" in r.requirement_text), None)
+    if kafka_req:
+        assert kafka_req.is_mandatory is False
+
+
+@pytest.mark.asyncio
 async def test_job_description_crud_and_tenancy(async_client: AsyncClient):
     # 1. Register User A
     user_a_email = f"user_a_{uuid.uuid4().hex[:6]}@example.com"

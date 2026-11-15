@@ -160,14 +160,24 @@ async def test_hybrid_scoring_engine_calculation():
     assert result.domain_score >= 50.0
     assert len(result.gap_evaluations) == 3
 
-    # Python should be DEMONSTRATED
+    # Python should be DEMONSTRATED and candidate-verified
     py_gap = next(g for g in result.gap_evaluations if "Python" in g["requirement_text"])
     assert py_gap["status"] == "DEMONSTRATED"
     assert py_gap["evidence_snippet"] is not None
+    assert "Candidate-verified" in py_gap["suggested_action"]
+    assert py_gap["is_resolved"] is True
+
+    # PostgreSQL is extracted from resume evidence, not candidate verified
+    pg_gap = next(g for g in result.gap_evaluations if "PostgreSQL" in g["requirement_text"])
+    assert pg_gap["status"] == "DEMONSTRATED"
+    assert "candidate verification recommended" in pg_gap["suggested_action"]
+    assert pg_gap["is_resolved"] is False
 
     # Kubernetes is not in resume -> should be NOT_DEMONSTRATED or PARTIAL
     k8s_gap = next(g for g in result.gap_evaluations if "Kubernetes" in g["requirement_text"])
     assert k8s_gap["status"] in ["NOT_DEMONSTRATED", "PARTIAL"]
+    if k8s_gap["status"] == "NOT_DEMONSTRATED":
+        assert k8s_gap["evidence_snippet"] is None
 
 
 @pytest.mark.asyncio

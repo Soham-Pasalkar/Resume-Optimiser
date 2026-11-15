@@ -207,26 +207,105 @@ Job Description text:
                 ):
                     cat = "soft_skill"
 
-                importance = 1.0 if current_mandatory else 0.6
+                # Check for inline preferred indicators (e.g. "is a plus", "bonus", "preferred")
+                inline_preferred = bool(
+                    re.search(
+                        r"\b(preferred|plus|bonus|nice\s+to\s+have|ideally|desired)\b",
+                        clean_item,
+                        re.IGNORECASE,
+                    )
+                )
+                line_mandatory = False if inline_preferred else current_mandatory
+                importance = 1.0 if line_mandatory else 0.6
 
                 requirements.append(
                     ExtractedRequirement(
                         requirement_text=clean_item,
                         category=cat,
-                        is_mandatory=current_mandatory,
+                        is_mandatory=line_mandatory,
                         importance_weight=importance,
                         min_years_experience=min_years,
                         canonical_skill_name=canonical_name,
                     )
                 )
 
-        # If no requirements were extracted from bullets, scan text for canonical skills
+        # If no requirements were extracted from bullets, perform sentence-level requirement extraction
+        if not requirements:
+            # Split raw text into natural sentences
+            raw_sentences = [
+                s.strip()
+                for s in re.split(r"(?<=[.!?])\s+|\n+", raw_text)
+                if len(s.strip()) > 15
+            ]
+
+            requirement_signals = re.compile(
+                r"\b(look(?:ing)?\s+for|require[ds]?|must\s+have|responsible\s+for|experience\s+with|proficien(?:t|cy)|background\s+in|degree\s+in|knowledge\s+of|ability\s+to|familiarity\s+with|demonstrated|hands-on|build|design|manage|lead|develop)\b",
+                re.IGNORECASE,
+            )
+
+            preferred_signals = re.compile(
+                r"\b(preferred|plus|bonus|nice\s+to\s+have|ideally|desired)\b",
+                re.IGNORECASE,
+            )
+
+            seen_texts: set[str] = set()
+
+            for sent in raw_sentences:
+                clean_sent = sent.strip().lstrip("•-* ").strip()
+                if clean_sent.lower() in seen_texts or len(clean_sent) < 20:
+                    continue
+
+                # Check if sentence signals a requirement or mentions known technical skills
+                matched_skills = skill_normalizer.extract_skills_from_text(clean_sent)
+                has_signal = bool(requirement_signals.search(clean_sent))
+
+                if has_signal or matched_skills:
+                    seen_texts.add(clean_sent.lower())
+
+                    is_mand = not bool(preferred_signals.search(clean_sent))
+                    years_m = re.search(
+                        r"(\d+(?:\.\d+)?)\+?\s*(?:-\s*(\d+(?:\.\d+)?))?\s*years?",
+                        clean_sent,
+                        re.IGNORECASE,
+                    )
+                    min_yrs = float(years_m.group(1)) if years_m else None
+                    canonical = matched_skills[0]["canonical_name"] if matched_skills else None
+
+                    # Category classification
+                    if matched_skills:
+                        c_type = "technical_skill"
+                    elif any(w in clean_sent.lower() for w in ["degree", "bachelor", "master", "phd", "education"]):
+                        c_type = "qualification"
+                    elif any(w in clean_sent.lower() for w in ["certif", "aws certified", "pmp", "license"]):
+                        c_type = "qualification"
+                    elif any(w in clean_sent.lower() for w in ["lead", "manage", "collaborat", "communicate", "mentor"]):
+                        c_type = "soft_skill"
+                    elif any(w in clean_sent.lower() for w in ["architect", "design", "build", "deliver", "scale"]):
+                        c_type = "responsibility"
+                    else:
+                        c_type = "qualification"
+
+                    requirements.append(
+                        ExtractedRequirement(
+                            requirement_text=clean_sent,
+                            category=c_type,
+                            is_mandatory=is_mand,
+                            importance_weight=1.0 if is_mand else 0.6,
+                            min_years_experience=min_yrs,
+                            canonical_skill_name=canonical,
+                        )
+                    )
+
+            if len(requirements) > 25:
+                requirements = requirements[:25]
+
+        # If still no requirements, fallback to extracted skill phrases
         if not requirements:
             all_skills = skill_normalizer.extract_skills_from_text(raw_text)
             for skill in all_skills:
                 requirements.append(
                     ExtractedRequirement(
-                        requirement_text=f"Demonstrated proficiency in {skill['canonical_name']}",
+                        requirement_text=f"Hands-on experience with {skill['canonical_name']}",
                         category="technical_skill",
                         is_mandatory=True,
                         importance_weight=1.0,
