@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Sparkles,
   Download,
@@ -35,7 +36,11 @@ import {
   TailoredResumeSummary,
 } from "@/lib/api";
 
-export default function OptimizerPage() {
+function OptimizerContent() {
+  const searchParams = useSearchParams();
+  const queryJdId = searchParams.get("jd_id");
+  const queryResumeId = searchParams.get("resume_id");
+
   const [drafts, setDrafts] = useState<TailoredResumeSummary[]>([]);
   const [selectedResume, setSelectedResume] = useState<TailoredResume | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,14 +60,27 @@ export default function OptimizerPage() {
   const [editText, setEditText] = useState("");
 
   useEffect(() => {
-    loadDrafts();
-  }, []);
+    loadDrafts(queryJdId, queryResumeId);
+  }, [queryJdId, queryResumeId]);
 
-  async function loadDrafts() {
+  async function loadDrafts(targetJdId?: string | null, targetResumeId?: string | null) {
     try {
       setLoading(true);
       const data = await listTailoredResumes();
       setDrafts(data);
+
+      if (targetJdId) {
+        const found = data.find((d) => d.target_jd_id === targetJdId);
+        if (found) {
+          const first = await getTailoredResume(found.id);
+          setSelectedResume(first);
+          return;
+        } else {
+          openNewModal(targetJdId, targetResumeId);
+          return;
+        }
+      }
+
       if (data.length > 0 && !selectedResume) {
         const first = await getTailoredResume(data[0].id);
         setSelectedResume(first);
@@ -74,14 +92,23 @@ export default function OptimizerPage() {
     }
   }
 
-  async function openNewModal() {
+  async function openNewModal(preselectJdId?: string | null, preselectResumeId?: string | null) {
     try {
       setError(null);
       const [resList, jobList] = await Promise.all([listUserResumes(), listJobs()]);
       setResumes(resList);
       setJobs(jobList);
-      if (resList.length > 0) setSelectedResumeId(resList[0].id);
-      if (jobList.length > 0) setSelectedJdId(jobList[0].id);
+      if (preselectResumeId && resList.some((r) => r.id === preselectResumeId)) {
+        setSelectedResumeId(preselectResumeId);
+      } else if (resList.length > 0) {
+        setSelectedResumeId(resList[0].id);
+      }
+
+      if (preselectJdId && jobList.some((j) => j.id === preselectJdId)) {
+        setSelectedJdId(preselectJdId);
+      } else if (jobList.length > 0) {
+        setSelectedJdId(jobList[0].id);
+      }
       setShowModal(true);
     } catch (err: any) {
       setError(err.message || "Failed to load options");
@@ -203,7 +230,7 @@ export default function OptimizerPage() {
 
         <div className="flex items-center gap-2 flex-wrap">
           <button
-            onClick={openNewModal}
+            onClick={() => openNewModal()}
             className="btn-primary px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -619,5 +646,19 @@ export default function OptimizerPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function OptimizerPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="surface p-12 text-center text-xs text-soft-muted rounded-2xl">
+          Loading AI Resume Studio...
+        </div>
+      }
+    >
+      <OptimizerContent />
+    </Suspense>
   );
 }

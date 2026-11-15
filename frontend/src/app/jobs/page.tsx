@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   FileSearch,
   Building,
@@ -13,6 +14,7 @@ import {
   Sparkles,
   ArrowRight,
   Filter,
+  Scale,
 } from "lucide-react";
 import {
   analyzeJob,
@@ -304,6 +306,14 @@ export default function JobsPage() {
                         {selectedJob.work_mode}
                       </span>
                     )}
+                    <Link
+                      href={`/matches?jd_id=${selectedJob.id}`}
+                      className="btn-primary px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm cursor-pointer ml-auto"
+                    >
+                      <Scale className="w-3.5 h-3.5" />
+                      Run Gap Analysis
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
                   </div>
                 </div>
 

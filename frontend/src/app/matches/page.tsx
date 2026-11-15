@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Scale,
   Sparkles,
@@ -32,7 +34,10 @@ import {
   SkillGapItem,
 } from "@/lib/api";
 
-export default function MatchesPage() {
+function MatchesContent() {
+  const searchParams = useSearchParams();
+  const queryJdId = searchParams.get("jd_id");
+
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<MatchEvaluation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,14 +60,25 @@ export default function MatchesPage() {
   const [submittingVerification, setSubmittingVerification] = useState(false);
 
   useEffect(() => {
-    loadMatches();
-  }, []);
+    loadMatches(queryJdId);
+  }, [queryJdId]);
 
-  async function loadMatches() {
+  async function loadMatches(targetJdId?: string | null) {
     try {
       setLoading(true);
       const data = await listMatches();
       setMatches(data);
+      if (targetJdId) {
+        const found = data.find((m) => m.jd_id === targetJdId);
+        if (found) {
+          const detail = await getMatchDetail(found.id);
+          setSelectedMatch(detail);
+          return;
+        } else {
+          openNewEvaluationModal(targetJdId);
+          return;
+        }
+      }
       if (data.length > 0 && !selectedMatch) {
         const first = await getMatchDetail(data[0].id);
         setSelectedMatch(first);
@@ -74,14 +90,18 @@ export default function MatchesPage() {
     }
   }
 
-  async function openNewEvaluationModal() {
+  async function openNewEvaluationModal(preselectedJdId?: string | null) {
     try {
       setError(null);
       const [resList, jobList] = await Promise.all([listUserResumes(), listJobs()]);
       setResumes(resList);
       setJobs(jobList);
       if (resList.length > 0) setSelectedResumeId(resList[0].id);
-      if (jobList.length > 0) setSelectedJdId(jobList[0].id);
+      if (preselectedJdId && jobList.some((j) => j.id === preselectedJdId)) {
+        setSelectedJdId(preselectedJdId);
+      } else if (jobList.length > 0) {
+        setSelectedJdId(jobList[0].id);
+      }
       setShowNewModal(true);
     } catch (err: any) {
       setError(err.message || "Failed to load options for evaluation");
@@ -191,7 +211,7 @@ export default function MatchesPage() {
         </div>
 
         <button
-          onClick={openNewEvaluationModal}
+          onClick={() => openNewEvaluationModal()}
           className="btn-primary px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 cursor-pointer self-start sm:self-auto"
         >
           <Sparkles className="w-4 h-4" />
@@ -225,7 +245,7 @@ export default function MatchesPage() {
               <div className="py-8 text-center text-xs text-soft-muted well rounded-xl p-4 space-y-2">
                 <p>No evaluations yet.</p>
                 <button
-                  onClick={openNewEvaluationModal}
+                  onClick={() => openNewEvaluationModal()}
                   className="text-soft-blue font-semibold underline text-xs cursor-pointer"
                 >
                   Run your first evaluation
@@ -312,16 +332,43 @@ export default function MatchesPage() {
 
                   {/* 5-Factor Score Meters */}
                   <div className="flex-1 space-y-3 w-full">
-                    <div>
-                      <h2 className="text-base font-bold text-soft-text">
-                        {selectedMatch.job_title}
-                      </h2>
-                      {selectedMatch.company_name && (
-                        <p className="text-xs font-semibold text-soft-blue flex items-center gap-1.5">
-                          <Building className="w-3.5 h-3.5" />
-                          {selectedMatch.company_name}
-                        </p>
-                      )}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-bold text-soft-text">
+                          {selectedMatch.job_title}
+                        </h2>
+                        {selectedMatch.company_name && (
+                          <p className="text-xs font-semibold text-soft-blue flex items-center gap-1.5">
+                            <Building className="w-3.5 h-3.5" />
+                            {selectedMatch.company_name}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={`/optimizer?match_id=${selectedMatch.id}&jd_id=${selectedMatch.jd_id}&resume_id=${selectedMatch.resume_id}`}
+                          className="btn-primary px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Open in Resume Studio
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
+                        <Link
+                          href="/interview"
+                          className="btn-soft px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer text-soft-text hover:text-soft-blue"
+                        >
+                          <BookOpen className="w-3.5 h-3.5 text-soft-blue" />
+                          Interview Prep
+                        </Link>
+                        <Link
+                          href="/learning"
+                          className="btn-soft px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer text-soft-text hover:text-soft-blue"
+                        >
+                          <TrendingUp className="w-3.5 h-3.5 text-soft-green-text" />
+                          Learning Plan
+                        </Link>
+                      </div>
                     </div>
 
                     <div className="space-y-2 pt-1 text-xs">
@@ -687,5 +734,19 @@ export default function MatchesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function MatchesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="surface p-12 text-center text-xs text-soft-muted rounded-2xl">
+          Loading candidate-role match intelligence...
+        </div>
+      }
+    >
+      <MatchesContent />
+    </Suspense>
   );
 }

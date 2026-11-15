@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import {
   UserCheck,
@@ -14,6 +14,10 @@ import {
   BookOpen,
   Sparkles,
   ArrowRight,
+  FileText,
+  FileUp,
+  Star,
+  Check,
 } from "lucide-react";
 import {
   buildCandidateProfile,
@@ -21,7 +25,12 @@ import {
   verifyCandidateSkill,
   addCustomSkill,
   deleteCandidateSkill,
+  listUserResumes,
+  uploadResumeFile,
+  setMasterResume,
+  deleteResume,
   CandidateSkill,
+  ResumeListItem,
 } from "@/lib/api";
 
 export default function CandidateProfilePage() {
@@ -29,6 +38,18 @@ export default function CandidateProfilePage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Tab View: Skills vs Source Resumes
+  const [activeTab, setActiveTab] = useState<"skills" | "resumes">("skills");
+
+  // Resumes list & upload state
+  const [resumes, setResumes] = useState<ResumeListItem[]>([]);
+  const [loadingResumes, setLoadingResumes] = useState(false);
+  const [uploadingResume, setUploadingResume] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<string | null>(null);
+  const [isMasterUpload, setIsMasterUpload] = useState(true);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // New Skill Modal/Form
   const [showAddForm, setShowAddForm] = useState(false);
@@ -43,6 +64,7 @@ export default function CandidateProfilePage() {
 
   useEffect(() => {
     loadProfile();
+    loadResumes();
   }, []);
 
   async function loadProfile() {
@@ -57,14 +79,77 @@ export default function CandidateProfilePage() {
     }
   }
 
-  async function handleSyncFromResume() {
+  async function loadResumes() {
+    try {
+      setLoadingResumes(true);
+      const data = await listUserResumes();
+      setResumes(data);
+    } catch (err: any) {
+      // Don't show hard error if not authenticated yet
+    } finally {
+      setLoadingResumes(false);
+    }
+  }
+
+  async function handleFileUpload(file: File) {
+    const ext = file.name.toLowerCase();
+    if (!ext.endsWith(".pdf") && !ext.endsWith(".docx")) {
+      setError("Unsupported file format. Please upload a PDF or DOCX file.");
+      return;
+    }
+
+    try {
+      setUploadingResume(true);
+      setError(null);
+      setSuccessMessage(null);
+      setUploadPhase("Parsing document structure...");
+
+      await uploadResumeFile(file, isMasterUpload);
+      setSuccessMessage(`Successfully uploaded and parsed "${file.name}".`);
+      await loadResumes();
+      // Auto refresh candidate profile
+      const updated = await buildCandidateProfile();
+      setSkills(updated);
+    } catch (err: any) {
+      setError(err.message || "Failed to upload resume");
+    } finally {
+      setUploadingResume(false);
+      setUploadPhase(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleSetMaster(id: string) {
+    try {
+      await setMasterResume(id);
+      await loadResumes();
+      setSuccessMessage("Master resume updated.");
+    } catch (err: any) {
+      setError(err.message || "Failed to set master resume");
+    }
+  }
+
+  async function handleDeleteResume(id: string) {
+    if (!confirm("Are you sure you want to remove this resume document?")) return;
+    try {
+      await deleteResume(id);
+      await loadResumes();
+    } catch (err: any) {
+      setError(err.message || "Failed to delete resume");
+    }
+  }
+
+  async function handleSyncFromResume(resumeId?: string) {
     try {
       setSyncing(true);
       setError(null);
-      const updated = await buildCandidateProfile();
+      setSuccessMessage(null);
+      const updated = await buildCandidateProfile(resumeId);
       setSkills(updated);
+      setActiveTab("skills");
+      setSuccessMessage(`Profile updated: ${updated.length} evidence-grounded competencies synchronized.`);
       if (updated.length === 0) {
-        setError("No skills could be extracted yet. Please upload a resume on the Ingestion page first.");
+        setError("No skills could be extracted yet. Please upload a resume document first.");
       }
     } catch (err: any) {
       setError(err.message || "Failed to sync candidate profile from resume");
@@ -148,7 +233,7 @@ export default function CandidateProfilePage() {
             Add Skill
           </button>
           <button
-            onClick={handleSyncFromResume}
+            onClick={() => handleSyncFromResume()}
             disabled={syncing}
             className="btn-primary px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
           >
@@ -167,260 +252,448 @@ export default function CandidateProfilePage() {
         </div>
       )}
 
-      {/* Metric Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="surface p-5 rounded-2xl space-y-1">
-          <p className="text-xs font-semibold text-soft-muted uppercase">Extracted Competencies</p>
-          <p className="text-2xl font-bold text-soft-text">{skills.length}</p>
-          <p className="text-[11px] text-soft-muted">Anchored to resume bullet evidence</p>
-        </div>
-
-        <div className="surface p-5 rounded-2xl space-y-1">
-          <p className="text-xs font-semibold text-soft-muted uppercase">Verified by Candidate</p>
-          <div className="flex items-center gap-2">
-            <p className="text-2xl font-bold text-soft-green-text">{verifiedCount}</p>
-            <ShieldCheck className="w-5 h-5 text-soft-green" />
-          </div>
-          <p className="text-[11px] text-soft-muted">
-            {skills.length > 0 ? `${Math.round((verifiedCount / skills.length) * 100)}% verified` : "0%"}
-          </p>
-        </div>
-
-        <div className="surface p-5 rounded-2xl space-y-1">
-          <p className="text-xs font-semibold text-soft-muted uppercase">Taxonomy Domains</p>
-          <p className="text-2xl font-bold text-soft-blue">{categories.length}</p>
-          <p className="text-[11px] text-soft-muted">Languages, cloud, databases & tools</p>
-        </div>
-      </div>
-
-      {/* Add Custom Skill Expandable Box */}
-      {showAddForm && (
-        <div className="surface p-6 rounded-2xl space-y-4 border border-blue-200">
-          <h2 className="text-sm font-bold text-soft-text flex items-center gap-2">
-            <Plus className="w-4 h-4 text-soft-blue" />
-            Add Custom Verified Competency
-          </h2>
-
-          <form onSubmit={handleAddSkill} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
-                Skill Name *
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. PyTorch, Rust, Kubernetes"
-                value={newSkillName}
-                onChange={(e) => setNewSkillName(e.target.value)}
-                className="w-full text-xs rounded-xl well border border-white/60 px-3.5 py-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
-                Category
-              </label>
-              <select
-                value={newSkillCategory}
-                onChange={(e) => setNewSkillCategory(e.target.value)}
-                className="w-full text-xs rounded-xl well border border-white/60 px-3.5 py-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
-              >
-                <option value="Programming Languages">Programming Languages</option>
-                <option value="Frameworks & Libraries">Frameworks & Libraries</option>
-                <option value="Databases & Storage">Databases & Storage</option>
-                <option value="Cloud & Infrastructure">Cloud & Infrastructure</option>
-                <option value="AI & Machine Learning">AI & Machine Learning</option>
-                <option value="Architecture & Methodologies">Architecture & Methodologies</option>
-                <option value="Tools & Systems">Tools & Systems</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
-                Proficiency
-              </label>
-              <select
-                value={newSkillProficiency}
-                onChange={(e) => setNewSkillProficiency(e.target.value)}
-                className="w-full text-xs rounded-xl well border border-white/60 px-3.5 py-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
-              >
-                <option value="proficient">Proficient</option>
-                <option value="advanced">Advanced</option>
-                <option value="expert">Expert</option>
-                <option value="familiar">Familiar</option>
-              </select>
-            </div>
-
-            <div className="md:col-span-3">
-              <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
-                Evidence or Practical Demonstration (Optional)
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Built high-throughput data processing pipeline with Rust."
-                value={newSkillEvidence}
-                onChange={(e) => setNewSkillEvidence(e.target.value)}
-                className="w-full text-xs rounded-xl well border border-white/60 px-3.5 py-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
-              />
-            </div>
-
-            <div className="md:col-span-3 flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowAddForm(false)}
-                className="btn-soft px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submittingSkill}
-                className="btn-primary px-5 py-2 rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-50"
-              >
-                {submittingSkill ? "Saving..." : "Save Competency"}
-              </button>
-            </div>
-          </form>
+      {successMessage && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-emerald-600" />
+            {successMessage}
+          </span>
+          <button onClick={() => setSuccessMessage(null)} className="font-semibold text-xs underline">
+            Dismiss
+          </button>
         </div>
       )}
 
-      {/* Category Pills Filter */}
-      {categories.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          <button
-            onClick={() => setSelectedCategory("all")}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-              selectedCategory === "all"
-                ? "well text-soft-blue border border-soft-blue"
-                : "surface text-soft-muted hover:text-soft-text"
-            }`}
-          >
-            All Categories ({skills.length})
-          </button>
-          {categories.map((cat) => {
-            const count = skills.filter((s) => s.category === cat).length;
-            return (
+      {/* View Mode Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200/60 pb-3">
+        <button
+          onClick={() => setActiveTab("skills")}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-2 ${
+            activeTab === "skills"
+              ? "well text-soft-blue border border-soft-blue shadow-sm"
+              : "surface text-soft-muted hover:text-soft-text"
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-soft-blue" />
+          Master Competencies ({skills.length})
+        </button>
+        <button
+          onClick={() => setActiveTab("resumes")}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-2 ${
+            activeTab === "resumes"
+              ? "well text-soft-blue border border-soft-blue shadow-sm"
+              : "surface text-soft-muted hover:text-soft-text"
+          }`}
+        >
+          <FileText className="w-4 h-4 text-soft-blue" />
+          Source Resume Documents ({resumes.length})
+        </button>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === "skills" ? (
+        <>
+          {/* Metric Cards Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div className="surface p-5 rounded-2xl space-y-1">
+              <p className="text-xs font-semibold text-soft-muted uppercase">Extracted Competencies</p>
+              <p className="text-2xl font-bold text-soft-text">{skills.length}</p>
+              <p className="text-[11px] text-soft-muted">Anchored to resume bullet evidence</p>
+            </div>
+
+            <div className="surface p-5 rounded-2xl space-y-1">
+              <p className="text-xs font-semibold text-soft-muted uppercase">Verified by Candidate</p>
+              <div className="flex items-center gap-2">
+                <p className="text-2xl font-bold text-soft-green-text">{verifiedCount}</p>
+                <ShieldCheck className="w-5 h-5 text-soft-green" />
+              </div>
+              <p className="text-[11px] text-soft-muted">
+                {skills.length > 0 ? `${Math.round((verifiedCount / skills.length) * 100)}% verified` : "0%"}
+              </p>
+            </div>
+
+            <div className="surface p-5 rounded-2xl space-y-1">
+              <p className="text-xs font-semibold text-soft-muted uppercase">Taxonomy Domains</p>
+              <p className="text-2xl font-bold text-soft-blue">{categories.length}</p>
+              <p className="text-[11px] text-soft-muted">Languages, cloud, databases & tools</p>
+            </div>
+          </div>
+
+          {/* Add Custom Skill Expandable Box */}
+          {showAddForm && (
+            <div className="surface p-6 rounded-2xl space-y-4 border border-blue-200">
+              <h2 className="text-sm font-bold text-soft-text flex items-center gap-2">
+                <Plus className="w-4 h-4 text-soft-blue" />
+                Add Custom Verified Competency
+              </h2>
+
+              <form onSubmit={handleAddSkill} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
+                    Skill Name *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. PyTorch, Rust, Kubernetes"
+                    value={newSkillName}
+                    onChange={(e) => setNewSkillName(e.target.value)}
+                    className="w-full text-xs rounded-xl well border border-white/60 px-3.5 py-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={newSkillCategory}
+                    onChange={(e) => setNewSkillCategory(e.target.value)}
+                    className="w-full text-xs rounded-xl well border border-white/60 px-3.5 py-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
+                  >
+                    <option value="Programming Languages">Programming Languages</option>
+                    <option value="Frameworks & Libraries">Frameworks & Libraries</option>
+                    <option value="Databases & Storage">Databases & Storage</option>
+                    <option value="Cloud & Infrastructure">Cloud & Infrastructure</option>
+                    <option value="AI & Machine Learning">AI & Machine Learning</option>
+                    <option value="Architecture & Methodologies">Architecture & Methodologies</option>
+                    <option value="Tools & Systems">Tools & Systems</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
+                    Proficiency
+                  </label>
+                  <select
+                    value={newSkillProficiency}
+                    onChange={(e) => setNewSkillProficiency(e.target.value)}
+                    className="w-full text-xs rounded-xl well border border-white/60 px-3.5 py-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
+                  >
+                    <option value="proficient">Proficient</option>
+                    <option value="advanced">Advanced</option>
+                    <option value="expert">Expert</option>
+                    <option value="familiar">Familiar</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-3">
+                  <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
+                    Evidence or Practical Demonstration (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Built high-throughput data processing pipeline with Rust."
+                    value={newSkillEvidence}
+                    onChange={(e) => setNewSkillEvidence(e.target.value)}
+                    className="w-full text-xs rounded-xl well border border-white/60 px-3.5 py-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
+                  />
+                </div>
+
+                <div className="md:col-span-3 flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm(false)}
+                    className="btn-soft px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingSkill}
+                    className="btn-primary px-5 py-2 rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-50"
+                  >
+                    {submittingSkill ? "Saving..." : "Save Competency"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Category Pills Filter */}
+          {categories.length > 0 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
               <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
+                onClick={() => setSelectedCategory("all")}
                 className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                  selectedCategory === cat
+                  selectedCategory === "all"
                     ? "well text-soft-blue border border-soft-blue"
                     : "surface text-soft-muted hover:text-soft-text"
                 }`}
               >
-                {cat} ({count})
+                All Categories ({skills.length})
               </button>
-            );
-          })}
-        </div>
-      )}
+              {categories.map((cat) => {
+                const count = skills.filter((s) => s.category === cat).length;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                      selectedCategory === cat
+                        ? "well text-soft-blue border border-soft-blue"
+                        : "surface text-soft-muted hover:text-soft-text"
+                    }`}
+                  >
+                    {cat} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-      {/* Skills Grid */}
-      {loading ? (
-        <div className="surface p-12 text-center text-xs text-soft-muted rounded-2xl">
-          Loading candidate profile...
-        </div>
-      ) : skills.length === 0 ? (
-        <div className="surface p-12 text-center rounded-2xl space-y-4">
-          <Sparkles className="w-10 h-10 text-slate-300 mx-auto" />
-          <h3 className="text-sm font-bold text-soft-text">No Skills In Profile Yet</h3>
-          <p className="text-xs text-soft-muted max-w-md mx-auto">
-            Upload your resume in the Ingestion Workspace, and CareerPilot will automatically extract evidence-grounded skills into your Master Candidate Profile.
-          </p>
-          <div className="pt-2">
-            <Link
-              href="/resumes"
-              className="btn-primary inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl"
-            >
-              <span>Go to Resume Ingestion</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredSkills.map((skill) => (
-            <div
-              key={skill.id}
-              className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3 border border-white/60 transition-all hover:translate-y-[-1px]"
-            >
-              <div className="space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-bold text-soft-text">
-                      {skill.skill_name}
-                    </h3>
-                    {skill.normalized_name !== skill.skill_name && (
-                      <p className="text-[11px] text-soft-blue font-medium">
-                        Concept: {skill.normalized_name}
-                      </p>
-                    )}
-                  </div>
-
-                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-lg well text-soft-muted border border-white/60">
-                    {skill.proficiency_level || "Proficient"}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-soft-muted bg-slate-100 px-2 py-0.5 rounded-md">
-                    {skill.category}
-                  </span>
-                </div>
-
-                {/* Evidence Anchor Box */}
-                {skill.evidence_text ? (
-                  <div className="well p-3 rounded-xl text-[11px] text-soft-text border border-white/80 space-y-1">
-                    <p className="text-[10px] font-bold uppercase text-soft-muted flex items-center gap-1">
-                      <BookOpen className="w-3 h-3 text-soft-blue" />
-                      Resume Evidence
-                    </p>
-                    <p className="italic leading-relaxed text-slate-700">
-                      &ldquo;{skill.evidence_text}&rdquo;
-                    </p>
-                  </div>
-                ) : (
-                  <div className="well p-2.5 rounded-xl text-[11px] text-slate-400 italic">
-                    Manually added skill without resume quote
-                  </div>
-                )}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-between pt-2 border-t border-slate-200/50">
+          {/* Skills Grid */}
+          {loading ? (
+            <div className="surface p-12 text-center text-xs text-soft-muted rounded-2xl">
+              Loading candidate profile...
+            </div>
+          ) : skills.length === 0 ? (
+            <div className="surface p-12 text-center rounded-2xl space-y-4">
+              <Sparkles className="w-10 h-10 text-slate-300 mx-auto" />
+              <h3 className="text-sm font-bold text-soft-text">No Skills In Profile Yet</h3>
+              <p className="text-xs text-soft-muted max-w-md mx-auto">
+                Upload your resume in the Source Documents tab, and CareerPilot will automatically extract evidence-grounded skills into your Master Candidate Profile.
+              </p>
+              <div className="pt-2">
                 <button
-                  onClick={() => handleToggleVerify(skill)}
-                  className={`text-xs font-semibold px-2.5 py-1 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
-                    skill.is_user_verified
-                      ? "bg-emerald-50 text-soft-green-text border border-emerald-200"
-                      : "well text-slate-500 hover:text-soft-blue"
-                  }`}
+                  onClick={() => setActiveTab("resumes")}
+                  className="btn-primary inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl"
                 >
-                  {skill.is_user_verified ? (
-                    <>
-                      <CheckCircle className="w-3.5 h-3.5 text-soft-green" />
-                      Verified
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
-                      Verify Skill
-                    </>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => handleDeleteSkill(skill.id)}
-                  className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
-                  title="Remove skill"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <FileUp className="w-3.5 h-3.5" />
+                  <span>Go to Source Documents</span>
                 </button>
               </div>
             </div>
-          ))}
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredSkills.map((skill) => (
+                <div
+                  key={skill.id}
+                  className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3 border border-white/60 transition-all hover:translate-y-[-1px]"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="text-sm font-bold text-soft-text">
+                          {skill.skill_name}
+                        </h3>
+                        {skill.normalized_name !== skill.skill_name && (
+                          <p className="text-[11px] text-soft-blue font-medium">
+                            Concept: {skill.normalized_name}
+                          </p>
+                        )}
+                      </div>
+
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-lg well text-soft-muted border border-white/60">
+                        {skill.proficiency_level || "Proficient"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-soft-muted bg-slate-100 px-2 py-0.5 rounded-md">
+                        {skill.category}
+                      </span>
+                    </div>
+
+                    {/* Evidence Anchor Box */}
+                    {skill.evidence_text ? (
+                      <div className="well p-3 rounded-xl text-[11px] text-soft-text border border-white/80 space-y-1">
+                        <p className="text-[10px] font-bold uppercase text-soft-muted flex items-center gap-1">
+                          <BookOpen className="w-3 h-3 text-soft-blue" />
+                          Resume Evidence
+                        </p>
+                        <p className="italic leading-relaxed text-slate-700">
+                          &ldquo;{skill.evidence_text}&rdquo;
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="well p-2.5 rounded-xl text-[11px] text-slate-400 italic">
+                        Manually added skill without resume quote
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-200/50">
+                    <button
+                      onClick={() => handleToggleVerify(skill)}
+                      className={`text-xs font-semibold px-2.5 py-1 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
+                        skill.is_user_verified
+                          ? "bg-emerald-50 text-soft-green-text border border-emerald-200"
+                          : "well text-slate-500 hover:text-soft-blue"
+                      }`}
+                    >
+                      {skill.is_user_verified ? (
+                        <>
+                          <CheckCircle className="w-3.5 h-3.5 text-soft-green" />
+                          Candidate Verified
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                          Verify Competency
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteSkill(skill.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
+                      title="Remove skill"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        /* Source Resume Documents Tab */
+        <div className="space-y-6">
+          {/* Resume Upload Dropzone */}
+          <div className="surface p-8 rounded-2xl border-2 border-dashed border-slate-300 space-y-4 text-center">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".pdf,.docx"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file);
+              }}
+            />
+            <div className="flex flex-col items-center justify-center space-y-2">
+              <div className="p-3 bg-blue-50 text-soft-blue rounded-full">
+                <FileUp className="w-8 h-8" />
+              </div>
+              <h3 className="text-sm font-bold text-soft-text">
+                Upload New Resume Document
+              </h3>
+              <p className="text-xs text-soft-muted max-w-md">
+                Upload your master PDF or DOCX resume. CareerPilot parses structured sections and extracts verified competencies into your career profile.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-4 pt-2">
+              <label className="flex items-center gap-2 text-xs text-soft-text cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isMasterUpload}
+                  onChange={(e) => setIsMasterUpload(e.target.checked)}
+                  className="rounded border-slate-300 text-soft-blue focus:ring-soft-blue"
+                />
+                <span>Set as primary Master Resume</span>
+              </label>
+
+              <button
+                type="button"
+                disabled={uploadingResume}
+                onClick={() => fileInputRef.current?.click()}
+                className="btn-primary px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {uploadingResume ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    {uploadPhase || "Uploading & Parsing..."}
+                  </>
+                ) : (
+                  <>
+                    <FileUp className="w-3.5 h-3.5" />
+                    Browse PDF / DOCX
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Uploaded Documents List */}
+          <div className="surface p-6 rounded-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-soft-text">
+                  Ingested Resume Documents ({resumes.length})
+                </h3>
+                <p className="text-xs text-soft-muted">
+                  Source documents used for candidate-role gap analysis and Resume Studio tailoring.
+                </p>
+              </div>
+              <Link
+                href="/resumes"
+                className="text-xs font-semibold text-soft-blue hover:underline flex items-center gap-1"
+              >
+                Open Advanced Section Editor
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            {loadingResumes ? (
+              <div className="p-8 text-center text-xs text-soft-muted">Loading documents...</div>
+            ) : resumes.length === 0 ? (
+              <div className="p-8 text-center text-xs text-soft-muted well rounded-xl">
+                No resume documents uploaded yet. Upload a PDF or DOCX above to begin.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {resumes.map((res) => (
+                  <div
+                    key={res.id}
+                    className="p-4 rounded-xl well border border-white/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-white rounded-xl shadow-xs text-soft-blue">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-soft-text">{res.file_name}</p>
+                          {res.is_master && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                              <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                              Master Resume
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-soft-muted mt-0.5">
+                          Uploaded {new Date(res.created_at).toLocaleDateString()} • {Math.round(res.file_size_bytes / 1024)} KB
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => handleSyncFromResume(res.id)}
+                        disabled={syncing}
+                        className="btn-primary px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
+                        Sync Skills
+                      </button>
+
+                      {!res.is_master && (
+                        <button
+                          onClick={() => handleSetMaster(res.id)}
+                          className="btn-soft px-3 py-1.5 rounded-xl text-xs font-semibold text-soft-muted hover:text-soft-text cursor-pointer"
+                        >
+                          Set as Master
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => handleDeleteResume(res.id)}
+                        className="p-2 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                        title="Delete resume"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

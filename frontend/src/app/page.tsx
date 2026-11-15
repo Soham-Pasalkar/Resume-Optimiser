@@ -21,19 +21,26 @@ import {
   ChevronRight,
   Activity,
   Cpu,
+  UserCheck,
+  Award,
+  FileCheck,
 } from "lucide-react";
 import {
+  getCandidateProfile,
   getLLMSettings,
   listApplications,
   listInterviewPreps,
   listJobs,
   listMatches,
   listRoadmaps,
+  listTailoredResumes,
   listUserResumes,
+  CandidateSkill,
   JobApplicationSummary,
   LLMSettings,
   MatchSummary,
   ResumeListItem,
+  TailoredResumeSummary,
 } from "@/lib/api";
 
 export default function DashboardHome() {
@@ -41,6 +48,8 @@ export default function DashboardHome() {
   const [jobsCount, setJobsCount] = useState<number>(0);
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [applications, setApplications] = useState<JobApplicationSummary[]>([]);
+  const [skills, setSkills] = useState<CandidateSkill[]>([]);
+  const [tailoredResumes, setTailoredResumes] = useState<TailoredResumeSummary[]>([]);
   const [roadmapsCount, setRoadmapsCount] = useState<number>(0);
   const [interviewsCount, setInterviewsCount] = useState<number>(0);
   const [llmSettings, setLlmSettings] = useState<LLMSettings | null>(null);
@@ -50,13 +59,15 @@ export default function DashboardHome() {
     async function fetchDashboardTelemetry() {
       try {
         setLoading(true);
-        const [rList, jList, mList, aList, rdList, iList, llm] = await Promise.all([
+        const [rList, jList, mList, aList, rdList, iList, sList, tList, llm] = await Promise.all([
           listUserResumes().catch(() => []),
           listJobs().catch(() => []),
           listMatches().catch(() => []),
           listApplications().catch(() => []),
           listRoadmaps().catch(() => []),
           listInterviewPreps().catch(() => []),
+          getCandidateProfile().catch(() => []),
+          listTailoredResumes().catch(() => []),
           getLLMSettings().catch(() => null),
         ]);
         setResumes(rList);
@@ -65,6 +76,8 @@ export default function DashboardHome() {
         setApplications(aList);
         setRoadmapsCount(rdList.length);
         setInterviewsCount(iList.length);
+        setSkills(sList);
+        setTailoredResumes(tList);
         setLlmSettings(llm);
       } catch {
         // Fallback gracefully
@@ -75,80 +88,207 @@ export default function DashboardHome() {
     fetchDashboardTelemetry();
   }, []);
 
-  const bestMatch = matches.length > 0
-    ? [...matches].sort((a, b) => b.overall_score - a.overall_score)[0]
-    : null;
+  const bestMatch =
+    matches.length > 0
+      ? [...matches].sort((a, b) => b.overall_score - a.overall_score)[0]
+      : null;
 
-  const activePipelineCount = applications.filter((a) => a.stage !== "REJECTED").length;
+  const verifiedSkillsCount = skills.filter((s) => s.is_user_verified).length;
+  const activePipelineCount = applications.filter((a) => a.stage !== "REJECTED" && a.stage !== "WITHDRAWN").length;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto pb-10">
       {/* Hero Welcome Banner */}
-      <section className="surface p-6 sm:p-8 relative overflow-hidden rounded-2xl">
+      <section className="surface p-6 sm:p-8 relative overflow-hidden rounded-2xl border border-slate-200/60 shadow-sm">
         <div className="relative z-10 max-w-3xl space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full well text-soft-blue">
-              Career Intelligence Platform
+              CareerPilot 2.0
             </span>
             <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
               100% Free Local AI Engine
             </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
+              Factual Integrity Guaranteed
+            </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-soft-text">
-            Welcome to <span className="text-soft-blue">CareerPilot</span>.
+            Analyze a job. Understand your gaps. <span className="text-soft-blue">Build a better resume.</span>
           </h1>
-          <p className="text-sm text-soft-muted leading-relaxed">
-            Your personal, research-oriented career command center. Ingest your resume, decompose job requirements, verify competencies with factual rigor, and optimize applications with zero hallucinations.
+          <p className="text-xs sm:text-sm text-soft-muted leading-relaxed">
+            CareerPilot bridges the gap between target opportunities and verified candidate qualifications. Generate ATS-optimized, evidence-grounded resumes without hallucinated claims or fabricated metrics.
           </p>
-          <div className="flex flex-wrap gap-3 pt-2">
-            <Link href="/resumes" className="btn-primary flex items-center gap-2 text-xs py-2 px-3.5">
-              <FileText className="w-4 h-4" />
-              <span>Upload Master Resume</span>
+
+          {/* Primary & Secondary Action Buttons */}
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <Link
+              href="/jobs"
+              className="btn-primary flex items-center gap-2 text-xs py-2.5 px-4 rounded-xl shadow-md"
+            >
+              <Target className="w-4 h-4" />
+              <span>Analyze a New Job</span>
+              <ArrowRight className="w-3.5 h-3.5" />
             </Link>
-            <Link href="/jobs" className="btn-soft flex items-center gap-2 text-xs py-2 px-3.5">
-              <Target className="w-4 h-4 text-soft-blue" />
-              <span>Analyze Target JD</span>
+            <Link
+              href="/candidate"
+              className="btn-soft flex items-center gap-2 text-xs py-2.5 px-4 rounded-xl"
+            >
+              <UserCheck className="w-4 h-4 text-soft-blue" />
+              <span>Update Career Profile</span>
             </Link>
-            <Link href="/pipeline" className="btn-soft flex items-center gap-2 text-xs py-2 px-3.5">
-              <Kanban className="w-4 h-4 text-indigo-600" />
-              <span>Application Pipeline</span>
+            <Link
+              href="/optimizer"
+              className="btn-soft flex items-center gap-2 text-xs py-2.5 px-4 rounded-xl"
+            >
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <span>Resume Studio</span>
+            </Link>
+            <Link
+              href="/learning"
+              className="btn-soft flex items-center gap-2 text-xs py-2.5 px-4 rounded-xl"
+            >
+              <GraduationCap className="w-4 h-4 text-emerald-600" />
+              <span>Review Learning Plans</span>
             </Link>
           </div>
         </div>
 
-        {/* Tactile Decorative Background Icon */}
+        {/* Decorative Compass Icon */}
         <div className="absolute -right-6 -bottom-6 opacity-10 pointer-events-none hidden sm:block">
           <Compass className="w-64 h-64 text-soft-blue" />
         </div>
       </section>
 
+      {/* Guided 5-Step Core Workflow Banner */}
+      <section className="surface p-4 sm:p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-extrabold uppercase tracking-wider text-soft-muted">
+            Core Workflow Journey
+          </span>
+          <span className="text-[11px] text-soft-blue font-semibold">Step-by-step intelligence</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 text-xs">
+          <Link
+            href="/candidate"
+            className="well p-3 rounded-xl border border-slate-200/60 hover:border-soft-blue transition-colors group block"
+          >
+            <div className="flex items-center gap-2 text-soft-blue font-bold mb-1">
+              <span className="w-5 h-5 rounded-full bg-soft-blue text-white flex items-center justify-center text-[10px]">1</span>
+              <span>Career Profile</span>
+            </div>
+            <p className="text-[11px] text-soft-muted">
+              {skills.length} skills ({verifiedSkillsCount} verified)
+            </p>
+          </Link>
+
+          <Link
+            href="/jobs"
+            className="well p-3 rounded-xl border border-slate-200/60 hover:border-soft-blue transition-colors group block"
+          >
+            <div className="flex items-center gap-2 text-soft-blue font-bold mb-1">
+              <span className="w-5 h-5 rounded-full bg-soft-blue text-white flex items-center justify-center text-[10px]">2</span>
+              <span>Analyze Job</span>
+            </div>
+            <p className="text-[11px] text-soft-muted">
+              {jobsCount} {jobsCount === 1 ? "opportunity" : "opportunities"} tracked
+            </p>
+          </Link>
+
+          <Link
+            href="/matches"
+            className="well p-3 rounded-xl border border-slate-200/60 hover:border-soft-blue transition-colors group block"
+          >
+            <div className="flex items-center gap-2 text-soft-blue font-bold mb-1">
+              <span className="w-5 h-5 rounded-full bg-soft-blue text-white flex items-center justify-center text-[10px]">3</span>
+              <span>Gap Analysis</span>
+            </div>
+            <p className="text-[11px] text-soft-muted">
+              {matches.length} {matches.length === 1 ? "evaluation" : "evaluations"} run
+            </p>
+          </Link>
+
+          <Link
+            href="/optimizer"
+            className="well p-3 rounded-xl border border-slate-200/60 hover:border-soft-blue transition-colors group block"
+          >
+            <div className="flex items-center gap-2 text-soft-blue font-bold mb-1">
+              <span className="w-5 h-5 rounded-full bg-soft-blue text-white flex items-center justify-center text-[10px]">4</span>
+              <span>Resume Studio</span>
+            </div>
+            <p className="text-[11px] text-soft-muted">
+              {tailoredResumes.length} {tailoredResumes.length === 1 ? "tailored version" : "tailored versions"}
+            </p>
+          </Link>
+
+          <Link
+            href="/optimizer"
+            className="well p-3 rounded-xl border border-slate-200/60 hover:border-soft-blue transition-colors group block"
+          >
+            <div className="flex items-center gap-2 text-soft-blue font-bold mb-1">
+              <span className="w-5 h-5 rounded-full bg-soft-blue text-white flex items-center justify-center text-[10px]">5</span>
+              <span>Export ATS</span>
+            </div>
+            <p className="text-[11px] text-soft-muted">
+              Download clean PDF / DOCX
+            </p>
+          </Link>
+        </div>
+      </section>
+
       {/* Top 4 Live Metric Cards */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1: Resumes & Master Profile */}
-        <div className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3">
+        {/* Metric 1: Career Profile Competencies */}
+        <div className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3 border border-slate-200/60">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-soft-muted uppercase">Master Resumes</span>
+            <span className="text-xs font-bold text-soft-muted uppercase">Career Profile</span>
             <ShieldCheck className="w-4 h-4 text-soft-green" />
           </div>
           <div className="space-y-1">
             <div className="text-2xl font-extrabold text-soft-text">
-              {resumes.length} {resumes.length === 1 ? "File" : "Files"}
+              {skills.length} <span className="text-xs font-normal text-soft-muted">Skills</span>
             </div>
             <p className="text-[11px] text-soft-muted">
-              {resumes.some((r) => r.is_master) ? "Master Profile Active" : "No Master Tagged"}
+              {verifiedSkillsCount} candidate-verified • {resumes.length} {resumes.length === 1 ? "source resume" : "source resumes"}
             </p>
           </div>
-          <div className="well p-2 rounded-lg flex items-center justify-between text-[11px]">
-            <span className="text-soft-muted">Ingestion Engine:</span>
-            <span className="font-semibold text-soft-green">pdfplumber + OCR</span>
-          </div>
+          <Link
+            href="/candidate"
+            className="well p-2 rounded-lg flex items-center justify-between text-[11px] hover:text-soft-blue transition-colors"
+          >
+            <span>View Competencies</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
 
-        {/* Metric 2: Top Match Alignment */}
-        <div className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3">
+        {/* Metric 2: Target Opportunities */}
+        <div className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3 border border-slate-200/60">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-soft-muted uppercase">Target Jobs</span>
+            <Target className="w-4 h-4 text-soft-blue" />
+          </div>
+          <div className="space-y-1">
+            <div className="text-2xl font-extrabold text-soft-text">
+              {jobsCount} <span className="text-xs font-normal text-soft-muted">Tracked</span>
+            </div>
+            <p className="text-[11px] text-soft-muted">
+              Decomposed into mandatory & preferred requirements
+            </p>
+          </div>
+          <Link
+            href="/jobs"
+            className="well p-2 rounded-lg flex items-center justify-between text-[11px] hover:text-soft-blue transition-colors"
+          >
+            <span>Analyze Opportunities</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        {/* Metric 3: Top Match Alignment */}
+        <div className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3 border border-slate-200/60">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-soft-muted uppercase">Top Alignment</span>
-            <Target className="w-4 h-4 text-soft-blue" />
+            <Award className="w-4 h-4 text-amber-500" />
           </div>
           <div className="space-y-1">
             <div className="text-2xl font-extrabold text-soft-blue">
@@ -158,75 +298,60 @@ export default function DashboardHome() {
               {bestMatch ? `${bestMatch.job_title}` : "Run your first match"}
             </p>
           </div>
-          <div className="well p-2 rounded-lg flex items-center justify-between text-[11px]">
-            <span className="text-soft-muted">Method:</span>
-            <span className="font-semibold text-soft-text">Okapi BM25 + Dense</span>
-          </div>
+          <Link
+            href="/matches"
+            className="well p-2 rounded-lg flex items-center justify-between text-[11px] hover:text-soft-blue transition-colors"
+          >
+            <span>Inspect Gap Analysis</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
 
-        {/* Metric 3: Active Pipeline */}
-        <div className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3">
+        {/* Metric 4: Resume Studio Drafts */}
+        <div className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3 border border-slate-200/60">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-soft-muted uppercase">Pipeline Tracker</span>
-            <Kanban className="w-4 h-4 text-indigo-600" />
+            <span className="text-xs font-bold text-soft-muted uppercase">Resume Studio</span>
+            <FileCheck className="w-4 h-4 text-indigo-500" />
           </div>
           <div className="space-y-1">
-            <div className="text-2xl font-extrabold text-indigo-600">
-              {activePipelineCount} Active
+            <div className="text-2xl font-extrabold text-soft-text">
+              {tailoredResumes.length} <span className="text-xs font-normal text-soft-muted">Tailored</span>
             </div>
             <p className="text-[11px] text-soft-muted">
-              {applications.length} total applications tracked
+              ATS-verified documents with Google XYZ diffs
             </p>
           </div>
-          <div className="well p-2 rounded-lg flex items-center justify-between text-[11px]">
-            <span className="text-soft-muted">Stages:</span>
-            <span className="font-semibold text-soft-text">6 Kanban Columns</span>
-          </div>
-        </div>
-
-        {/* Metric 4: Local AI Daemon Status */}
-        <div className="surface p-5 rounded-2xl flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-soft-muted uppercase">Local Inference</span>
-            <Cpu className="w-4 h-4 text-soft-green" />
-          </div>
-          <div className="space-y-1">
-            <div className="text-2xl font-extrabold text-soft-green">
-              {llmSettings?.daemon_status?.is_available ? "Online" : "Fallback"}
-            </div>
-            <p className="text-[11px] text-soft-muted truncate">
-              {llmSettings?.daemon_status?.is_available
-                ? llmSettings.default_model
-                : "Curated Bar-Raiser Heuristics"}
-            </p>
-          </div>
-          <div className="well p-2 rounded-lg flex items-center justify-between text-[11px]">
-            <span className="text-soft-muted">Privacy:</span>
-            <span className="font-semibold text-soft-green">100% Free / Zero API Cost</span>
-          </div>
+          <Link
+            href="/optimizer"
+            className="well p-2 rounded-lg flex items-center justify-between text-[11px] hover:text-soft-blue transition-colors"
+          >
+            <span>Open Studio</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
       </section>
 
-      {/* Main 2-Column Split */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column (8 cols): Top Target Opportunity or Onboarding */}
-        <div className="lg:col-span-8 space-y-4">
-          <div className="surface p-6 rounded-2xl space-y-5">
-            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
+      {/* Main Content 2-Column Split */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column (8 cols): Top Target Opportunity & Gap Overview */}
+        <div className="lg:col-span-8 space-y-6">
+          <div className="surface p-6 rounded-2xl border border-slate-200/60 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
               <div>
-                <h3 className="text-base font-bold text-soft-text">Current Application Focus</h3>
+                <h3 className="text-base font-bold text-soft-text">Recent Gap Analysis</h3>
                 <p className="text-xs text-soft-muted">
-                  Highest-alignment role opportunity requiring action
+                  Direct evaluation of your master profile against target opportunity requirements
                 </p>
               </div>
-              <Link href="/matches" className="text-xs font-bold text-soft-blue hover:underline flex items-center gap-1">
-                <span>All Reports</span>
-                <ChevronRight className="w-3.5 h-3.5" />
+              <Link href="/matches" className="text-xs text-soft-blue font-semibold hover:underline">
+                View All Matches ({matches.length})
               </Link>
             </div>
 
-            {bestMatch ? (
-              <div className="well p-5 rounded-xl space-y-4 border-l-4 border-soft-blue">
+            {loading ? (
+              <div className="p-8 text-center text-xs text-soft-muted">Loading telemetry...</div>
+            ) : bestMatch ? (
+              <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 pb-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -245,7 +370,7 @@ export default function DashboardHome() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                      {Math.round(bestMatch.overall_score)}% Overall Match
+                      {Math.round(bestMatch.overall_score)}% Alignment
                     </span>
                   </div>
                 </div>
@@ -253,7 +378,7 @@ export default function DashboardHome() {
                 {/* Progress bar */}
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs text-soft-muted">
-                    <span>Qualification Alignment</span>
+                    <span>Evidence-Grounded Qualification Alignment</span>
                     <span className="font-bold text-soft-text">
                       {Math.round(bestMatch.overall_score)}%
                     </span>
@@ -269,25 +394,25 @@ export default function DashboardHome() {
                 {/* Quick Actions Row */}
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-200/60">
                   <Link
-                    href="/optimizer"
-                    className="btn-soft text-xs py-1.5 px-3 flex items-center gap-1.5"
+                    href={`/optimizer?match_id=${bestMatch.id}&jd_id=${bestMatch.jd_id}&resume_id=${bestMatch.resume_id}`}
+                    className="btn-primary text-xs py-2 px-3.5 flex items-center gap-1.5"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-soft-blue" />
-                    <span>Optimize Resume (XYZ)</span>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Open in Resume Studio</span>
                   </Link>
                   <Link
-                    href="/learning"
-                    className="btn-soft text-xs py-1.5 px-3 flex items-center gap-1.5"
+                    href={`/learning?match_id=${bestMatch.id}`}
+                    className="btn-soft text-xs py-2 px-3.5 flex items-center gap-1.5"
                   >
                     <GraduationCap className="w-3.5 h-3.5 text-soft-green" />
-                    <span>View Learning Roadmap</span>
+                    <span>View Learning Plan</span>
                   </Link>
                   <Link
-                    href="/interview"
-                    className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5 ml-auto"
+                    href={`/interview?match_id=${bestMatch.id}`}
+                    className="btn-soft text-xs py-2 px-3.5 flex items-center gap-1.5 ml-auto"
                   >
+                    <MessageSquareCode className="w-3.5 h-3.5 text-soft-blue" />
                     <span>Practice Interview</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>
               </div>
@@ -295,66 +420,38 @@ export default function DashboardHome() {
               <div className="well p-8 rounded-xl text-center space-y-3">
                 <Target className="w-10 h-10 text-soft-blue mx-auto opacity-70" />
                 <div className="space-y-1">
-                  <h4 className="text-sm font-bold text-soft-text">Ready to run your first evaluation?</h4>
+                  <h4 className="text-sm font-bold text-soft-text">No evaluations yet</h4>
                   <p className="text-xs text-soft-muted max-w-md mx-auto">
-                    Upload your resume and a target job description to generate an explainable 5-factor match score and 4-tier gap breakdown.
+                    Analyze a target job description and compare it against your career profile to identify exact gaps.
                   </p>
                 </div>
-                <Link href="/matches" className="btn-primary inline-flex items-center gap-2 text-xs py-2 px-4 mt-1">
+                <Link href="/jobs" className="btn-primary inline-flex items-center gap-2 text-xs py-2 px-4 mt-1">
                   <Target className="w-3.5 h-3.5" />
-                  <span>Run Match Evaluation</span>
+                  <span>Analyze Target Job</span>
                 </Link>
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Column (4 cols): Intelligence Modules Overview */}
+        {/* Right Column (4 cols): Quick Status & Career Development */}
         <div className="lg:col-span-4 space-y-4">
-          <div className="surface p-6 rounded-2xl space-y-4">
-            <h3 className="text-base font-bold text-soft-text border-b pb-3 border-slate-200">
-              Intelligence Modules
+          <div className="surface p-6 rounded-2xl border border-slate-200/60 space-y-4">
+            <h3 className="text-base font-bold text-soft-text border-b pb-3 border-slate-200/60">
+              Career Development
             </h3>
 
             <div className="space-y-2 text-xs">
-              <Link
-                href="/candidate"
-                className="well p-3 rounded-xl flex items-center justify-between hover:bg-white transition-colors block"
-              >
-                <div className="flex items-center gap-2.5">
-                  <ShieldCheck className="w-4 h-4 text-soft-green" />
-                  <div>
-                    <span className="font-bold text-soft-text block">Master Profile</span>
-                    <span className="text-[11px] text-soft-muted">Evidence-anchored skills</span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-soft-muted" />
-              </Link>
-
-              <Link
-                href="/optimizer"
-                className="well p-3 rounded-xl flex items-center justify-between hover:bg-white transition-colors block"
-              >
-                <div className="flex items-center gap-2.5">
-                  <Sparkles className="w-4 h-4 text-soft-blue" />
-                  <div>
-                    <span className="font-bold text-soft-text block">AI Resume Optimizer</span>
-                    <span className="text-[11px] text-soft-muted">Google XYZ + NLI Guardrails</span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-soft-muted" />
-              </Link>
-
               <Link
                 href="/learning"
                 className="well p-3 rounded-xl flex items-center justify-between hover:bg-white transition-colors block"
               >
                 <div className="flex items-center gap-2.5">
-                  <GraduationCap className="w-4 h-4 text-indigo-600" />
+                  <GraduationCap className="w-4 h-4 text-emerald-600" />
                   <div>
-                    <span className="font-bold text-soft-text block">Learning Roadmaps</span>
+                    <span className="font-bold text-soft-text block">Learning & Projects</span>
                     <span className="text-[11px] text-soft-muted">
-                      {roadmapsCount} {roadmapsCount === 1 ? "roadmap" : "roadmaps"} generated
+                      {roadmapsCount} active {roadmapsCount === 1 ? "roadmap" : "roadmaps"}
                     </span>
                   </div>
                 </div>
@@ -366,11 +463,11 @@ export default function DashboardHome() {
                 className="well p-3 rounded-xl flex items-center justify-between hover:bg-white transition-colors block"
               >
                 <div className="flex items-center gap-2.5">
-                  <MessageSquareCode className="w-4 h-4 text-purple-600" />
+                  <MessageSquareCode className="w-4 h-4 text-soft-blue" />
                   <div>
-                    <span className="font-bold text-soft-text block">Interview Intelligence</span>
+                    <span className="font-bold text-soft-text block">Interview Preparation</span>
                     <span className="text-[11px] text-soft-muted">
-                      {interviewsCount} {interviewsCount === 1 ? "session" : "sessions"} active
+                      {interviewsCount} practice {interviewsCount === 1 ? "session" : "sessions"}
                     </span>
                   </div>
                 </div>
@@ -382,11 +479,11 @@ export default function DashboardHome() {
                 className="well p-3 rounded-xl flex items-center justify-between hover:bg-white transition-colors block"
               >
                 <div className="flex items-center gap-2.5">
-                  <Kanban className="w-4 h-4 text-soft-orange" />
+                  <Kanban className="w-4 h-4 text-indigo-600" />
                   <div>
-                    <span className="font-bold text-soft-text block">Pipeline Tracker</span>
+                    <span className="font-bold text-soft-text block">Application Tracker</span>
                     <span className="text-[11px] text-soft-muted">
-                      {applications.length} applications tracked
+                      {activePipelineCount} active {activePipelineCount === 1 ? "application" : "applications"}
                     </span>
                   </div>
                 </div>
@@ -395,7 +492,7 @@ export default function DashboardHome() {
             </div>
           </div>
         </div>
-      </section>
+      </div>
     </div>
   );
 }
