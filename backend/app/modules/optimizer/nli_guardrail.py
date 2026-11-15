@@ -5,10 +5,15 @@ from app.modules.ontology.normalizer import skill_normalizer
 
 
 class NLIGuardrail:
-    """Enforces strict factual preservation and anti-hallucination guardrails on rewritten bullets."""
+    """Syntactic & Entity Factual Guardrail: inspects entity deltas, numerical claims, and temporal markers to guarantee zero hallucinated metrics or fabricated technologies."""
 
     METRIC_PATTERN = re.compile(
         r"(?:\$\s*\d+(?:,\d+)*(?:\.\d+)?(?:\s*[kKmMbB]|million|billion)?|\d+(?:\.\d+)?%|\d+x|\b\d{2,}\b)",
+        re.IGNORECASE,
+    )
+
+    DATE_PATTERN = re.compile(
+        r"\b(?:19\d\d|20\d\d|january|february|march|april|may|june|july|august|september|october|november|december)\b",
         re.IGNORECASE,
     )
 
@@ -57,7 +62,18 @@ class NLIGuardrail:
                 f"Hallucination alert: introduced fabricated quantitative metrics ({violating_metrics}) not substantiated by original bullet.",
             )
 
-        # 3. Strict factual preservation confirmed
+        # 3. Check for ungrounded new dates / years
+        orig_dates = set(self.DATE_PATTERN.findall(original_text))
+        opt_dates = set(self.DATE_PATTERN.findall(optimized_text))
+        unverified_dates = opt_dates - orig_dates
+        if unverified_dates:
+            violating_dates = ", ".join(unverified_dates)
+            return (
+                "FLAGGED",
+                f"Factual drift: introduced ungrounded calendar dates/years ({violating_dates}) not present in source bullet.",
+            )
+
+        # 4. Strict factual preservation confirmed
         return (
             "ENTAILMENT",
             "Factual consistency verified; strictly preserves source evidence while elevating active impact verbs.",

@@ -365,9 +365,9 @@ function OptimizerContent() {
                               : "bg-red-50 text-red-700 border border-red-200"
                           }`}
                         >
-                          <ShieldCheck className="w-3 h-3" />
+                          <ShieldCheck className="w-3 h-3 text-soft-green" />
                           {diff.nli_verification_status === "ENTAILMENT"
-                            ? "Factual Entailment"
+                            ? "Factual Guardrail Verified"
                             : diff.nli_verification_status}
                         </span>
 
@@ -494,10 +494,13 @@ function OptimizerContent() {
               {/* Candidate Header */}
               <div className="text-center space-y-1 pb-3 border-b border-slate-200">
                 <h2 className="text-lg font-bold text-slate-900 tracking-tight uppercase">
-                  {selectedResume?.tailored_content?.candidate_name || "Marcus Vance"}
+                  {selectedResume?.tailored_content?.full_name ||
+                    selectedResume?.tailored_content?.candidate_name ||
+                    "Candidate Name"}
                 </h2>
                 <p className="text-[10px] text-slate-500">
-                  {selectedResume?.tailored_content?.contact_info || "marcus@example.com | San Francisco, CA"}
+                  {selectedResume?.tailored_content?.contact_info ||
+                    "Verified Candidate Profile • CareerPilot Studio"}
                 </p>
               </div>
 

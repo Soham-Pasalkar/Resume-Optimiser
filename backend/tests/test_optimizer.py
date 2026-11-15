@@ -237,6 +237,9 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
     )
     assert detail_resp.status_code == 200
     assert detail_resp.json()["id"] == tailored_id
+    assert detail_resp.json()["tailored_content"]["candidate_name"] == "Taylor Swift"
+    assert "Taylor Swift" in detail_resp.json()["tailored_content"]["full_name"]
+    assert user_a_email in detail_resp.json()["tailored_content"]["contact_info"]
 
     # 7. Accept a diff
     accept_resp = await async_client.put(

@@ -9,7 +9,9 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.models.jd import JobDescription
 from app.models.optimizer import TailoredBulletDiff, TailoredResume
 from app.models.resume import Resume, ResumeSection
+from app.models.user import User
 from app.modules.candidate.service import candidate_service
+from app.modules.matching.dense import dense_matcher
 from app.modules.optimizer.exporter import resume_exporter
 from app.modules.optimizer.rewriter import bullet_rewriter
 
@@ -46,12 +48,42 @@ class OptimizerService:
         if not jd:
             raise ValueError("Target job description not found.")
 
-        # 3. Fetch candidate profile skills
+        # 3. Fetch user info for factual candidate identity
+        user_stmt = select(User).where(User.id == user_id).options(selectinload(User.profile))
+        user_res = await db.execute(user_stmt)
+        user = user_res.scalar_one_or_none()
+
+        candidate_name = user.full_name.strip() if (user and user.full_name) else "Candidate Profile"
+
+        contact_parts = []
+        if user and user.email:
+            contact_parts.append(user.email)
+        if user and user.profile:
+            if user.profile.headline:
+                contact_parts.append(user.profile.headline)
+            if user.profile.linkedin_url:
+                contact_parts.append(user.profile.linkedin_url)
+            if user.profile.github_url:
+                contact_parts.append(user.profile.github_url)
+        if not contact_parts:
+            contact_parts = ["Candidate Profile Verified | CareerPilot Intelligence Platform"]
+        contact_info = " • ".join(contact_parts)
+
+        # 4. Fetch candidate profile skills
         candidate_skills = await candidate_service.get_profile(db, user_id)
 
-        # 4. Build initial snapshot of tailored content
+        # Target JD ontology skills for prioritization
+        target_skills = {
+            (r.canonical_skill_name or "").lower()
+            for r in jd.requirements
+            if r.canonical_skill_name
+        }
+
+        # 5. Build initial snapshot of tailored content with skills section prioritization
         sections_snapshot = []
         for sec in resume.sections:
+            sec_type = (sec.section_type or "").lower()
+            heading = (sec.heading or "").lower()
             items_snapshot = []
             for item in sec.items:
                 items_snapshot.append(
@@ -66,27 +98,35 @@ class OptimizerService:
                         "bullets": list(item.bullets or []),
                     }
                 )
+
+            # In Skills sections, prioritize skills that match target job requirements
+            raw_content = sec.raw_content
+            if ("skill" in sec_type or "skill" in heading) and raw_content:
+                lines = [ln.strip() for ln in raw_content.splitlines() if ln.strip()]
+                relevant = [ln for ln in lines if any(ts in ln.lower() for ts in target_skills)]
+                other = [ln for ln in lines if not any(ts in ln.lower() for ts in target_skills)]
+                if relevant:
+                    raw_content = "\n".join(relevant + other)
+
             sections_snapshot.append(
                 {
                     "id": str(sec.id),
                     "section_type": sec.section_type,
                     "heading": sec.heading,
-                    "raw_content": sec.raw_content,
+                    "raw_content": raw_content,
                     "display_order": sec.display_order,
                     "items": items_snapshot,
                 }
             )
 
         tailored_content = {
-            "candidate_name": resume.file_name.replace(".pdf", "")
-            .replace(".docx", "")
-            .replace("_", " ")
-            .title(),
-            "contact_info": "Candidate Profile Verified | CareerPilot Intelligence Platform",
+            "candidate_name": candidate_name,
+            "full_name": candidate_name,
+            "contact_info": contact_info,
             "sections": sections_snapshot,
         }
 
-        # 5. Create TailoredResume record
+        # 6. Create TailoredResume record
         version_title = f"Tailored for {jd.job_title} at {jd.company_name or 'Target Role'}"
         tailored = TailoredResume(
             user_id=user_id,
@@ -98,10 +138,7 @@ class OptimizerService:
         db.add(tailored)
         await db.flush()
 
-        # 6. Generate tailored diffs for work experience and project bullets
-        req_cycle = list(jd.requirements) or [None]
-        req_idx = 0
-
+        # 7. Generate tailored diffs with genuine semantic requirement mapping
         for sec in resume.sections:
             sec_type = sec.section_type.lower()
             if (
@@ -117,8 +154,27 @@ class OptimizerService:
                     if len(bullet_text.strip()) < 15:
                         continue
 
-                    target_req = req_cycle[req_idx % len(req_cycle)]
-                    req_idx += 1
+                    # Evaluate bullet against all requirements to find genuinely aligned target
+                    bullet_lower = bullet_text.lower()
+                    best_req = None
+                    best_sim = 0.0
+
+                    for req in jd.requirements:
+                        canonical = (req.canonical_skill_name or "").lower()
+                        sim = 0.0
+                        if canonical and canonical in bullet_lower:
+                            sim = 0.85
+                        else:
+                            sim, _ = await dense_matcher.find_best_evidence_match(
+                                req.requirement_text, [bullet_text]
+                            )
+
+                        if sim > best_sim:
+                            best_sim = sim
+                            best_req = req
+
+                    # Only link to requirement if similarity meets threshold, otherwise rewrite for role
+                    target_req = best_req if best_sim >= 0.45 else None
 
                     rewrite_result = await bullet_rewriter.rewrite_bullet(
                         original_text=bullet_text,
