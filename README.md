@@ -1,127 +1,115 @@
-# CareerPilot — AI-Powered Career Intelligence Platform
+# CareerPilot 2.0 — AI-Powered Career Intelligence Platform
 
-> **Navigate your career. Engineer your future.**
+> **Analyze a job. Understand your gaps. Build a better resume. Prepare for the opportunity.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python: 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![Next.js: 15](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
+[![Tests: 46/46 Passed](https://img.shields.io/badge/Tests-46%2F46%20Passed-success)](docs/TESTING.md)
 [![Design: Soft UI Evolution](https://img.shields.io/badge/Design-Soft%20UI%20Evolution-blue)](docs/DESIGN_SYSTEM.md)
-[![Operational Cost: $0.00 Free](https://img.shields.io/badge/Cost-100%25%20Free%20Local-success)](docs/PROJECT_BRIEF.md)
+[![Cost: 100% Free Local AI](https://img.shields.io/badge/Cost-100%25%20Free%20Local-success)](docs/AI_AND_MATCHING_METHODOLOGY.md)
 
 ---
 
-## 1. What is CareerPilot?
+## 1. What is CareerPilot 2.0?
 
-**CareerPilot** is an enterprise-grade, research-oriented career intelligence platform. It bridges the gap between job seekers and employers by decoding complex job postings, objectively evaluating qualifications through hybrid semantic-lexical analysis, providing transparent evidence-backed skill gap assessments, optimizing resumes without factual hallucination, and generating role-targeted interview preparation.
+**CareerPilot 2.0** is an enterprise-grade, locally operated career intelligence platform. It bridges the divide between technical job seekers and hiring teams by deconstructing complex job postings into granular requirements, objectively evaluating candidate qualifications using a hybrid 5-factor scientific matching engine, and generating tailored, ATS-compliant single-column resumes bounded by strict factual preservation guardrails.
 
-### Sister Project Relationship: PeopleLens (Resume-Ranker)
-CareerPilot is the strategic candidate-facing counterpart to [PeopleLens (Resume-Ranker)](https://github.com/Soham-Pasalkar/Resume-Ranker). While PeopleLens assists recruiters in discovering and evaluating talent pools, **CareerPilot empowers candidates to understand opportunities, highlight genuine strengths, and prepare for career progression.**
+### The 5-Step Core Workflow Journey
 
----
+```
+MY CAREER PROFILE  ──►  JOB ANALYSIS  ──►  GAP ANALYSIS  ──►  RESUME STUDIO  ──►  ATS EXPORT
+ (Raw Docs & Proof)    (Decomposed JD)   (5-Factor Match)   (Google XYZ Diff)   (PDF & DOCX)
+```
 
-## 2. Core Pillars & Capabilities
-
-1. **Zero Operational Cost / 100% Free Default:**
-   Runs out-of-the-box using local **Ollama** LLMs (`llama3.1:8b`, `qwen2.5:7b`, `mistral:7b`), local Sentence Transformers embeddings, and open-source infrastructure. No paid API keys required.
-2. **Bring Your Own Key (BYOK) Option:**
-   Users who wish to utilize cloud providers (OpenAI, Anthropic Claude, Google Gemini, Groq) can configure optional API keys in settings.
-3. **Strict Factual Preservation (Zero Hallucination):**
-   Automated NLI cross-encoders (DeBERTa-v3) and quantitative entity delta checking guarantee that resume bullets are never embellished with fabricated metrics, credentials, or technologies.
-4. **Hybrid Matching Engine:**
-   Combines exact lexical retrieval (Okapi BM25), dense vector embeddings (BGE-Small), and hierarchical skill ontologies to produce an explainable, auditable 5-factor alignment report.
-5. **Personalized Learning & Interview Intelligence:**
-   Automated milestone curricula with curated documentation and real-world portfolio deliverables, plus 10 role-tailored interview questions evaluated against bar-raiser rubrics.
-6. **Kanban Application Pipeline & Opportunity Comparison:**
-   Track opportunities across 6 recruitment stages (`Wishlist`, `Applied`, `Screening`, `Interviewing`, `Offer`, `Archived`) with 1-click stage progression and side-by-side qualification benchmarking.
-7. **Soft UI Evolution Aesthetics:**
-   A refined neumorphic design language featuring subtle tactile depth, soft dual ambient shadows, inset wells, and strict WCAG 2.1 Level AA accessibility.
+1. **My Career Profile (`/candidate`):** Manage master resume documents (PDF/DOCX) and factual, evidence-anchored competencies. Extracted skills are clearly distinguished from candidate-verified competencies.
+2. **Analyze a Job (`/jobs`):** Deconstruct job postings into mandatory vs. preferred criteria, experience thresholds, and taxonomy skills—for both bulleted and narrative paragraph postings.
+3. **Gap Analysis (`/matches`):** Audit alignment using BM25 lexical ranking, dense vector cosine similarity, and skill ontology coverage with atomic bullet evidence snippets.
+4. **Resume Studio (`/optimizer`):** Tailor work experience and project bullets using the Google XYZ formula (`Accomplished [X] as measured by [Y] by doing [Z]`) mapped via semantic relevance to target requirements.
+5. **Factual Validation & ATS Export:** Strict anti-hallucination guardrails guarantee zero fabricated metrics, percentages, dates, or technologies before exporting single-column ATS PDF or DOCX documents.
 
 ---
 
-## 3. Implemented Modules Overview
+## 2. Core Engineering Pillars
 
-| Module | Core Functionality | Status |
-| :--- | :--- | :--- |
-| **Module 1: Authentication & User Workspaces** | Multi-tenant auth, JWT refresh, profile management, GDPR account purge | `Operational (Passed)` |
-| **Module 2: Resume Ingestion & Parsing** | PDF/DOCX ingestion with pdfplumber and OCR fallback, rule-based section segmentation | `Operational (Passed)` |
-| **Module 3: JD Intelligence Engine** | Job description parsing, required vs. preferred criteria, tech extraction | `Operational (Passed)` |
-| **Module 4: Candidate Intelligence Engine** | Reusable master candidate profile with verbatim evidence anchoring | `Operational (Passed)` |
-| **Module 5: Hybrid Matching Engine** | Okapi BM25 + Dense Sentence Transformers + 5-factor scoring model | `Operational (Passed)` |
-| **Module 6: Skill Gap Analysis** | 4-tier gap classification (`DEMONSTRATED`, `PARTIAL`, `NOT_DEMONSTRATED`, `REQUIRES_VERIFICATION`) with live verification | `Operational (Passed)` |
-| **Module 7: AI Resume Optimizer** | Google XYZ formula rewriter, NLI factual guardrails, single-column ATS PDF & DOCX exporter | `Operational (Passed)` |
-| **Module 8: Personalized Learning Engine** | Skill gap curriculum generator, study hours estimation, practical project briefs | `Operational (Passed)` |
-| **Module 9: Interview Intelligence** | Technical, STAR behavioral, and gap-defense question bank with AI rubric evaluation | `Operational (Passed)` |
-| **Module 10: Application Pipeline Tracker** | 6-stage Kanban board, stage transition audit history, multi-opportunity comparison matrix | `Operational (Passed)` |
+1. **Zero Operational Cost / 100% Local AI First:**
+   Operates out-of-the-box using local **Ollama** LLMs (`qwen2.5-coder:14b` or `llama3.1:8b`) with automated failover to deterministic rule engines when Ollama is offline.
+2. **Strict Factual Preservation (Zero Hallucination):**
+   The Syntactic & Entity Factual Guardrail inspects entity deltas, quantitative metric invariants, and calendar dates to guarantee that candidate resumes remain 100% truthful.
+3. **Atomic Evidence Retrieval:**
+   Only discrete item bullets and lines are indexed as evidence chunks. No unrelated multi-paragraph section text is ever attached as evidence for technical requirements.
+4. **Guided Workflow Handoffs:**
+   Context flows naturally across the candidate journey: Job Analysis $\to$ Gap Evaluation $\to$ Resume Studio $\to$ Interview Preparation $\to$ Application Pipeline.
+5. **Soft UI Evolution Aesthetics:**
+   Refined neumorphic tactile depth, subtle dual ambient shadows, inset wells, and full WCAG 2.1 Level AA color contrast compliance.
 
 ---
 
 ## 3. Technology Stack
 
-- **Frontend:** Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS v4, Radix UI Primitives, Lucide Icons, TanStack React Query v5.
-- **Backend:** FastAPI (Python 3.11+), Pydantic v2, SQLAlchemy 2.0 (Async), Alembic, Celery, Redis.
-- **Persistence:** PostgreSQL 16 with native `pgvector` extension.
-- **AI & NLP:** Local Ollama daemon (`http://localhost:11434`), Sentence Transformers (`BAAI/bge-small-en-v1.5`), `rank-bm25`, DeBERTa-v3 NLI cross-encoder.
-- **Document Processing:** `pdfplumber`, `python-docx`, `Tesseract OCR` fallback.
+- **Frontend:** Next.js 15.1.7 (App Router), React 19, TypeScript 5.7, Tailwind CSS, Lucide Icons.
+- **Backend:** FastAPI (Python 3.11+ / 3.14), Pydantic v2, SQLAlchemy 2.0 (Async), ReportLab, python-docx, pdfplumber.
+- **Persistence:** PostgreSQL 16 (production) / SQLite async (local/testing).
+- **AI & Retrieval:** Local Ollama daemon (`http://localhost:11434`), Okapi BM25 (`rank-bm25`), Cosine Similarity Embedding Matcher.
 
 ---
 
-## 4. Quick Start (Local Development)
+## 4. Quick Start Guide
 
 ### Prerequisites
-- Python 3.11+ (`python3.11`)
-- Node.js 18+ and npm (`node -v`, `npm -v`)
-- [Ollama](https://ollama.ai/) installed (`ollama run llama3.1:8b`)
-- PostgreSQL 16 with `pgvector` & Redis 7 (or run via Docker)
+- Python 3.11+
+- Node.js 18+ and npm
+- (Optional) [Ollama](https://ollama.ai/) running `qwen2.5-coder:14b` or `llama3.1:8b`
 
-### 1. Clone Repository & Setup Environment
+### 1. Clone & Setup
 ```bash
 git clone https://github.com/Soham-Pasalkar/Resume-Optimiser.git
 cd Resume-Optimiser
-
-# Copy environment variables
-cp .env.example .env
+git checkout feature/careerpilot-2.0
 ```
 
-### 2. Automated Setup via Makefile
+### 2. Run Backend
 ```bash
-make setup
+# Setup Python virtual environment
+python3 -m venv venv
+source venv/bin/activate
+pip install -r backend/requirements.txt
+
+# Start FastAPI Server
+cd backend
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# API live at: http://localhost:8000
+# OpenAPI Docs: http://localhost:8000/docs
 ```
 
-### 3. Run Backend (FastAPI)
+### 3. Run Frontend
 ```bash
-make dev-backend
-# API will be live at: http://localhost:8000
-# OpenAPI Interactive Docs: http://localhost:8000/docs
+cd frontend
+npm install
+npm run dev
+# Web application live at: http://localhost:3000
 ```
 
-### 4. Run Frontend (Next.js)
+### 4. Run Test Suite
 ```bash
-make dev-frontend
-# Web interface will be live at: http://localhost:3000
-```
+# Run all 46 backend tests
+pytest backend/tests/ -v
 
-### 5. (Alternative) Run Everything via Docker Compose
-```bash
-docker compose up -d
+# Run Next.js production typecheck and build
+cd frontend
+npm run build
 ```
 
 ---
 
-## 5. Architectural Documentation Index
+## 5. Architectural Documentation
 
-The complete planning and research specification is available under the [`docs/`](docs/) directory:
-
-- [Project Brief & Identity](docs/PROJECT_BRIEF.md)
-- [Product Requirements Document (PRD)](docs/PRD.md)
-- [System Architecture](docs/SYSTEM_ARCHITECTURE.md)
-- [Frontend Design Specification (12 Pages)](docs/FRONTEND_DESIGN_SPEC.md)
-- [Design System (Soft UI Evolution)](docs/DESIGN_SYSTEM.md)
-- [Database Design & pgvector Schema](docs/DATABASE_DESIGN.md)
-- [REST API Specification](docs/API_SPECIFICATION.md)
-- [AI Research & Verification Plan](docs/AI_RESEARCH_PLAN.md)
-- [Implementation Roadmap (Phases 0–8)](docs/IMPLEMENTATION_ROADMAP.md)
-- [Risk Register](docs/RISK_REGISTER.md)
-- [Testing & Quality Assurance Strategy](docs/TESTING_STRATEGY.md)
+- [CareerPilot 2.0 Engineering Audit](docs/CAREERPILOT_2_0_AUDIT.md)
+- [System Architecture & Data-Flow](docs/CAREERPILOT_2_0_ARCHITECTURE.md)
+- [Resume Studio & Optimization Engine](docs/RESUME_OPTIMIZATION_ENGINE.md)
+- [AI & Matching Methodology](docs/AI_AND_MATCHING_METHODOLOGY.md)
+- [Testing & Quality Assurance Guide](docs/TESTING.md)
+- [Implementation Status & Defect Matrix](docs/IMPLEMENTATION_STATUS.md)
 
 ---
 
