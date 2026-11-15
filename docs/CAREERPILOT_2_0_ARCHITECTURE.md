@@ -108,9 +108,15 @@ flowchart TD
 - **Endpoints:** `/api/v1/matches/evaluate`, `/api/v1/matches`, `/api/v1/matches/{id}`, `/api/v1/matches/{id}/gaps/verify`
 - **Engine:** Combines BM25 lexical ranking (15%), dense semantic cosine similarity (25%), skill ontology overlap (35%), experience depth (15%), and domain relevance (10%).
 
-### Module 7: Resume Studio & ATS Generation
-- **Endpoints:** `/api/v1/optimizer/tailor`, `/api/v1/optimizer/tailored-resumes/{id}`, `/api/v1/optimizer/diffs/{id}`, `/api/v1/optimizer/tailored-resumes/{id}/export-pdf`
-- **Tailoring:** Maps bullets to target requirements via semantic relevance, enforces Google XYZ syntax (`Accomplished [X] as measured by [Y] by doing [Z]`), verifies zero hallucinated metrics or technologies, exports ATS-compliant single-column PDF and DOCX.
+### Module 7 & 11: Resume Studio 2.0 & ATS Document Generation
+- **Endpoints:** `/api/v1/optimizer/tailor`, `/api/v1/optimizer/tailored-resumes/{id}`, `/api/v1/optimizer/diffs/{id}`, `/api/v1/optimizer/diffs/{id}/restore`, `/api/v1/optimizer/tailored-resumes/{id}/sections`, `/api/v1/optimizer/tailored-resumes/{id}/composition`, `/api/v1/optimizer/tailored-resumes/{id}/export-pdf`, `/api/v1/optimizer/tailored-resumes/{id}/export-docx`
+- **Subsystems:**
+  - *Content Intelligence & Selection:* Maps job requirements to candidate resume evidence across all sections, categorizes decisions (`INCLUDED`, `PROPOSED_REWRITE`, `REORDERED`, `EXCLUDED`), and isolates missing requirements without fabricating ungrounded claims.
+  - *Requirement-to-Evidence Matrix:* Explicit matching methods (`ONTOLOGY_EXACT`, `DENSE_OLLAMA`, `LEXICAL_BM25_FALLBACK`, `DENSE_HASH_FALLBACK`) and candidate verification labels (`CANDIDATE_VERIFIED` vs `EXTRACTED_UNCONFIRMED`).
+  - *Context-Aware Rewriter:* Strong technical action verbs, preservation of quantitative metrics when present, avoidance of forced XYZ or AI jargon when metrics are not present.
+  - *5-Layer Factual Guardrail:* Deterministic entity, metric, temporal, and seniority invariant checks with standardized human review statuses (`VERIFIED`, `FLAGGED`, `REQUIRES_REVIEW`, `NOT_VERIFIED`).
+  - *Composition Intermediate Representation (IR):* Structured document state with source-to-output provenance, section inclusion toggles, and 1-click restore to candidate's original text.
+  - *ATS Document Exporters:* Single-column ReportLab PDF & python-docx generation with orphan heading prevention (`keepWithNext=True`), Unicode normalization, and pre-export content validation.
 
 ### Module 8 & 9: Career Development Intelligence
 - **Endpoints:** `/api/v1/learning/generate`, `/api/v1/learning/milestones/{id}`, `/api/v1/interview/generate`, `/api/v1/interview/questions/{id}/evaluate`

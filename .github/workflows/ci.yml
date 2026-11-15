@@ -2,9 +2,9 @@ name: CareerPilot CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, "feature/**" ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, "feature/**" ]
 
 jobs:
   backend-checks:
@@ -66,7 +66,7 @@ jobs:
           cd backend && pytest tests/ -v
 
   frontend-checks:
-    name: Frontend Lint & Tests
+    name: Frontend Lint, Typecheck & Build
     runs-on: ubuntu-latest
 
     steps:
@@ -83,9 +83,9 @@ jobs:
         run: |
           cd frontend && npm ci || npm install
 
-      - name: Type Check & Lint
+      - name: Type Check & Build Pages
         run: |
-          cd frontend && npm run lint || true
+          cd frontend && npm run build
 
       - name: Run Frontend Tests
         run: |

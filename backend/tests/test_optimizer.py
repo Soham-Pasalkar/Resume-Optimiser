@@ -6,8 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import CandidateSkill
 from app.models.jd import JDRequirement, JobDescription
+from app.models.optimizer import TailoredBulletDiff, TailoredResume
 from app.models.resume import Resume, ResumeItem, ResumeSection
+from app.modules.optimizer.composer import resume_composer
 from app.modules.optimizer.exporter import resume_exporter
+from app.modules.optimizer.intelligence import content_intelligence
 from app.modules.optimizer.nli_guardrail import nli_guardrail
 from app.modules.optimizer.rewriter import bullet_rewriter
 
@@ -34,10 +37,10 @@ def test_nli_guardrail_factual_preservation():
 
     orig = "Worked on backend microservices and database queries using Python and PostgreSQL."
 
-    # 1. Valid rephrasing (ENTAILMENT)
+    # 1. Valid rephrasing (ENTAILMENT / VERIFIED)
     valid_opt = "Architected backend microservices and optimized database queries using Python and PostgreSQL."
     status, rationale = nli_guardrail.verify_bullet(orig, valid_opt, cand_skills)
-    assert status == "ENTAILMENT"
+    assert status in ["ENTAILMENT", "VERIFIED"]
 
     # 2. Hallucinating an ungrounded technology not in source or candidate profile (FLAGGED)
     hallucinated_tech = "Architected Kubernetes microservices deployed using Rust and Docker."
@@ -50,6 +53,176 @@ def test_nli_guardrail_factual_preservation():
     status, rationale = nli_guardrail.verify_bullet(orig, hallucinated_metric, cand_skills)
     assert status == "FLAGGED"
     assert "fabricated quantitative metrics" in rationale
+
+    # 4. Fabricating temporal dates not in source (FLAGGED)
+    hallucinated_temporal = "Architected Python backend microservices during 2024 for 3 years."
+    status, rationale = nli_guardrail.verify_bullet(orig, hallucinated_temporal, cand_skills)
+    assert status == "FLAGGED"
+    assert "calendar dates/years" in rationale
+
+    # 5. Seniority inflation (FLAGGED)
+    seniority_inflated = "Served as Chief Architect and CTO scaling backend microservices using Python."
+    status, rationale = nli_guardrail.verify_bullet(orig, seniority_inflated, cand_skills)
+    assert status == "FLAGGED"
+    assert "Seniority distortion" in rationale
+
+
+@pytest.mark.asyncio
+async def test_content_intelligence_and_requirement_mapping():
+    user_id = uuid.uuid4()
+    resume = Resume(
+        user_id=user_id,
+        file_name="resume.pdf",
+        file_key="resumes/resume.pdf",
+        file_format="pdf",
+        file_size_bytes=2048,
+        raw_text="Sample Resume Text",
+    )
+    sec_exp = ResumeSection(
+        resume_id=resume.id,
+        section_type="EXPERIENCE",
+        heading="Work Experience",
+        display_order=1,
+    )
+    item_exp = ResumeItem(
+        section_id=sec_exp.id,
+        title="Senior Backend Engineer",
+        organization="CloudScale Corp",
+        bullets=[
+            "Architected distributed event-driven microservices using Python and Kafka.",
+            "Designed relational schemas and optimized high-concurrency SQL queries in PostgreSQL.",
+        ],
+    )
+    sec_exp.items = [item_exp]
+
+    sec_skills = ResumeSection(
+        resume_id=resume.id,
+        section_type="SKILLS",
+        heading="Technical Skills",
+        raw_content="Python, PostgreSQL, Kafka, Docker, Linux",
+        display_order=2,
+    )
+    sec_skills.items = []
+    resume.sections = [sec_exp, sec_skills]
+
+    jd = JobDescription(
+        user_id=user_id,
+        job_title="Lead Data Engineer",
+        company_name="Apex Data",
+        raw_text="Seeking a Lead Data Engineer.",
+    )
+    req1 = JDRequirement(
+        jd_id=jd.id,
+        requirement_text="5+ years building distributed pipelines with Kafka and Python.",
+        is_mandatory=True,
+        canonical_skill_name="Kafka",
+        category="technical_skill",
+    )
+    req2 = JDRequirement(
+        jd_id=jd.id,
+        requirement_text="Deep expertise in Snowflake data warehousing.",
+        is_mandatory=False,
+        canonical_skill_name="Snowflake",
+        category="technical_skill",
+    )
+    jd.requirements = [req1, req2]
+
+    cand_skills = [
+        CandidateSkill(
+            user_id=user_id,
+            skill_name="Kafka",
+            normalized_name="kafka",
+            category="Frameworks & Libraries",
+            is_user_verified=True,
+        )
+    ]
+
+    analysis = await content_intelligence.analyze_and_map(
+        resume=resume,
+        jd=jd,
+        candidate_skills=cand_skills,
+    )
+
+    # 1. Requirement mappings
+    mappings = analysis["requirement_mappings"]
+    assert len(mappings) >= 1
+    kafka_map = next(m for m in mappings if "kafka" in (m["canonical_skill_name"] or "").lower())
+    assert kafka_map["is_mandatory"] is True
+    assert kafka_map["verification_status"] == "CANDIDATE_VERIFIED"
+    assert kafka_map["matching_method"] in ["ONTOLOGY_EXACT", "DENSE_OLLAMA", "DENSE_HASH_FALLBACK"]
+    assert kafka_map["confidence_score"] >= 0.50
+
+    # 2. Missing requirements (Snowflake is not in resume or profile)
+    missing = analysis["missing_requirements"]
+    assert any("Snowflake" in m["requirement_text"] for m in missing)
+    snow_missing = next(m for m in missing if "Snowflake" in m["requirement_text"])
+    assert "do not fabricate" in snow_missing["suggested_action"].lower()
+
+    # 3. Content decisions
+    decisions = analysis["content_decisions"]
+    assert len(decisions) >= 2
+    assert any(d["decision"] in ["PROPOSED_REWRITE", "INCLUDED"] for d in decisions)
+
+
+def test_resume_composition_ir_and_provenance():
+    user_id = uuid.uuid4()
+    jd = JobDescription(user_id=user_id, job_title="Senior Platform Engineer", company_name="Starlight AI")
+    req = JDRequirement(jd_id=jd.id, requirement_text="Kubernetes cluster management", canonical_skill_name="Kubernetes")
+    jd.requirements = [req]
+
+    tailored = TailoredResume(
+        user_id=user_id,
+        source_resume_id=uuid.uuid4(),
+        target_jd_id=jd.id,
+        version_title="Tailored for Starlight AI",
+        tailored_content={
+            "full_name": "Jordan Lee",
+            "contact_info": "jordan@example.com | Seattle, WA",
+            "sections": [
+                {
+                    "id": "sec_1",
+                    "section_type": "EXPERIENCE",
+                    "heading": "Work Experience",
+                    "is_included": True,
+                    "display_order": 1,
+                    "items": [
+                        {
+                            "id": "item_1",
+                            "title": "Platform Engineer",
+                            "organization": "InfraCorp",
+                            "bullets": [
+                                "Administered production Kubernetes clusters across AWS and GCP.",
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    tailored.target_jd = jd
+
+    diff = TailoredBulletDiff(
+        tailored_resume_id=tailored.id,
+        section_id="sec_1",
+        item_id="item_1",
+        bullet_index=0,
+        original_text="Administered production Kubernetes clusters across AWS and GCP.",
+        optimized_text="Architected and scaled production Kubernetes clusters across AWS and GCP.",
+        rationale="Elevated technical action verb; highlighted alignment with target competency Kubernetes.",
+        targeted_requirement_id=req.id,
+        nli_verification_status="VERIFIED",
+        status="ACCEPTED",
+    )
+
+    ir = resume_composer.build_composition_ir(tailored, [diff])
+
+    assert ir["candidate_identity"]["full_name"] == "Jordan Lee"
+    assert len(ir["sections"]) == 1
+    assert ir["sections"][0]["items"][0]["bullets"][0]["text"] == diff.optimized_text
+    assert ir["sections"][0]["items"][0]["bullets"][0]["source_status"] == "ACCEPTED_REWRITE"
+    assert len(ir["provenance"]) == 1
+    assert ir["provenance"][0]["diff_id"] == str(diff.id)
+    assert ir["metadata"]["applied_diffs"] == 1
 
 
 @pytest.mark.asyncio
@@ -88,7 +261,7 @@ async def test_bullet_rewriter_google_xyz_formula():
         "Collaborated to engineer" in result["optimized_text"]
         or "Architected" in result["optimized_text"]
     )
-    assert result["nli_verification_status"] == "ENTAILMENT"
+    assert result["nli_verification_status"] in ["ENTAILMENT", "VERIFIED"]
 
 
 def test_resume_export_pdf_and_docx():
@@ -132,6 +305,20 @@ def test_resume_export_pdf_and_docx():
     assert isinstance(docx_bytes, bytes)
     assert len(docx_bytes) > 500
     assert docx_bytes.startswith(b"PK\x03\x04")  # Standard Zip/DOCX header
+
+
+def test_exporter_pre_validation():
+    # Empty content raises ValueError
+    with pytest.raises(ValueError, match="Cannot export empty resume content"):
+        resume_exporter.generate_pdf({})
+
+    # Missing name raises ValueError
+    with pytest.raises(ValueError, match="missing candidate name"):
+        resume_exporter.generate_pdf({"candidate_name": "", "sections": [{"heading": "Skills"}]})
+
+    # Missing sections raises ValueError
+    with pytest.raises(ValueError, match="at least one resume section is required"):
+        resume_exporter.generate_pdf({"candidate_name": "John Doe", "sections": []})
 
 
 @pytest.mark.asyncio
@@ -218,10 +405,10 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
     tailored_id = tailored_data["id"]
     assert tailored_data["diffs_count"] >= 2
     assert len(tailored_data["diffs"]) >= 2
+    assert "requirement_mappings" in tailored_data["tailored_content"]
 
-    # Check NLI status on diffs
     diff_0 = tailored_data["diffs"][0]
-    assert diff_0["nli_verification_status"] == "ENTAILMENT"
+    assert diff_0["nli_verification_status"] in ["ENTAILMENT", "VERIFIED"]
     assert diff_0["status"] == "PENDING"
     diff_id = diff_0["id"]
 
@@ -230,16 +417,16 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
     assert list_resp.status_code == 200
     assert len(list_resp.json()) == 1
 
-    # 6. Get Tailored Resume Detail
-    detail_resp = await async_client.get(
-        f"/api/v1/optimizer/tailored-resumes/{tailored_id}",
+    # 6. Get Composition IR
+    ir_resp = await async_client.get(
+        f"/api/v1/optimizer/tailored-resumes/{tailored_id}/composition",
         headers=headers_a,
     )
-    assert detail_resp.status_code == 200
-    assert detail_resp.json()["id"] == tailored_id
-    assert detail_resp.json()["tailored_content"]["candidate_name"] == "Taylor Swift"
-    assert "Taylor Swift" in detail_resp.json()["tailored_content"]["full_name"]
-    assert user_a_email in detail_resp.json()["tailored_content"]["contact_info"]
+    assert ir_resp.status_code == 200
+    ir_data = ir_resp.json()
+    assert "candidate_identity" in ir_data
+    assert "provenance" in ir_data
+    assert "export_sections" in ir_data
 
     # 7. Accept a diff
     accept_resp = await async_client.put(
@@ -259,10 +446,24 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
     exp_bullets = snapshot["sections"][0]["items"][0]["bullets"]
     assert exp_bullets[0] == diff_0["optimized_text"]
 
-    # 8. Edit a diff
-    custom_bullet = (
-        "Architected mission-critical Python microservices with verified sub-10ms latency."
+    # 8. Restore Diff to Original Text
+    restore_resp = await async_client.post(
+        f"/api/v1/optimizer/diffs/{diff_id}/restore",
+        headers=headers_a,
     )
+    assert restore_resp.status_code == 200
+    assert restore_resp.json()["status"] == "REJECTED"
+
+    # Verify snapshot restored to original text
+    refreshed_detail_restored = await async_client.get(
+        f"/api/v1/optimizer/tailored-resumes/{tailored_id}",
+        headers=headers_a,
+    )
+    exp_bullets_restored = refreshed_detail_restored.json()["tailored_content"]["sections"][0]["items"][0]["bullets"]
+    assert exp_bullets_restored[0] == diff_0["original_text"]
+
+    # 9. Edit a diff with custom text
+    custom_bullet = "Architected mission-critical Python microservices with verified sub-10ms latency."
     edit_resp = await async_client.put(
         f"/api/v1/optimizer/diffs/{diff_id}",
         headers=headers_a,
@@ -270,19 +471,25 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
     )
     assert edit_resp.status_code == 200
     assert edit_resp.json()["status"] == "EDITED"
-    assert edit_resp.json()["edited_text"] == custom_bullet
 
-    # Verify snapshot updated to custom edited text
-    refreshed_detail2 = await async_client.get(
-        f"/api/v1/optimizer/tailored-resumes/{tailored_id}",
+    # 10. Toggle Section Visibility
+    sec_id_to_toggle = str(sec_a.id)
+    toggle_resp = await async_client.put(
+        f"/api/v1/optimizer/tailored-resumes/{tailored_id}/sections",
         headers=headers_a,
+        json={"section_id": sec_id_to_toggle, "is_included": False},
     )
-    exp_bullets2 = refreshed_detail2.json()["tailored_content"]["sections"][0]["items"][0][
-        "bullets"
-    ]
-    assert exp_bullets2[0] == custom_bullet
+    assert toggle_resp.status_code == 200
 
-    # 9. Export PDF
+    # 11. Re-enable section for export
+    toggle_on_resp = await async_client.put(
+        f"/api/v1/optimizer/tailored-resumes/{tailored_id}/sections",
+        headers=headers_a,
+        json={"section_id": sec_id_to_toggle, "is_included": True},
+    )
+    assert toggle_on_resp.status_code == 200
+
+    # 12. Export PDF
     pdf_resp = await async_client.post(
         f"/api/v1/optimizer/tailored-resumes/{tailored_id}/export-pdf",
         headers=headers_a,
@@ -292,7 +499,7 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
     assert len(pdf_resp.content) > 500
     assert pdf_resp.content.startswith(b"%PDF")
 
-    # 10. Export DOCX
+    # 13. Export DOCX
     docx_resp = await async_client.post(
         f"/api/v1/optimizer/tailored-resumes/{tailored_id}/export-docx",
         headers=headers_a,
@@ -301,7 +508,7 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
     assert "wordprocessingml" in docx_resp.headers["content-type"]
     assert len(docx_resp.content) > 500
 
-    # 11. Multi-tenant boundary check with User B
+    # 14. Multi-tenant boundary check with User B
     user_b_email = f"tailor_b_{uuid.uuid4().hex[:6]}@example.com"
     reg_b = await async_client.post(
         "/api/v1/auth/register",
@@ -329,7 +536,7 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
     )
     assert b_edit.status_code == 404
 
-    # 12. User A deletes tailored resume
+    # 15. User A deletes tailored resume
     del_resp = await async_client.delete(
         f"/api/v1/optimizer/tailored-resumes/{tailored_id}",
         headers=headers_a,

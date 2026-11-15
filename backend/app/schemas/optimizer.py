@@ -30,10 +30,64 @@ class TailoredBulletDiffResponse(BaseModel):
 
 
 class UpdateDiffRequest(BaseModel):
-    status: str = Field(..., description="ACCEPTED, REJECTED, or EDITED")
+    status: str = Field(..., description="ACCEPTED, REJECTED, EDITED, or RESTORED")
     edited_text: str | None = Field(
         default=None, description="Customized bullet text if status is EDITED"
     )
+
+
+class RequirementEvidenceMappingResponse(BaseModel):
+    requirement_id: str
+    requirement_text: str
+    is_mandatory: bool
+    canonical_skill_name: str | None = None
+    category: str | None = None
+    matched_section_id: str | None = None
+    matched_section_name: str | None = None
+    matched_item_id: str | None = None
+    matched_bullet_index: int | None = None
+    original_evidence_text: str | None = None
+    matching_method: str = "UNMATCHED"
+    confidence_score: float = 0.0
+    verification_status: str = "UNMATCHED"
+
+
+class MissingRequirementResponse(BaseModel):
+    requirement_id: str
+    requirement_text: str
+    is_mandatory: bool
+    canonical_skill_name: str | None = None
+    category: str | None = None
+    suggested_action: str
+
+
+class ContentDecisionResponse(BaseModel):
+    section_id: str
+    section_type: str
+    heading: str
+    item_id: str | None = None
+    bullet_index: int | None = None
+    content_text: str
+    decision: str
+    relevance_score: float = 0.0
+    matched_requirement_ids: list[str] = Field(default_factory=list)
+    reasoning: str
+
+
+class SectionToggleRequest(BaseModel):
+    section_id: str
+    is_included: bool
+    display_order: int | None = None
+
+
+class ResumeCompositionIRResponse(BaseModel):
+    candidate_identity: dict[str, Any]
+    sections: list[dict[str, Any]]
+    export_sections: list[dict[str, Any]]
+    provenance: list[dict[str, Any]]
+    metadata: dict[str, Any]
+    requirement_mappings: list[RequirementEvidenceMappingResponse] = Field(default_factory=list)
+    missing_requirements: list[MissingRequirementResponse] = Field(default_factory=list)
 
 
 class TailoredResumeResponse(BaseModel):

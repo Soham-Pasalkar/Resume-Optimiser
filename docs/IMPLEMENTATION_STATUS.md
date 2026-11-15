@@ -12,6 +12,8 @@
 | **Defect F** | Generic learning milestones with placeholder URLs | Only 5 skills curated; uncurated skills generated identical fallback milestones with `devdocs.io`. | Expanded curated blueprints to 15+ modern technologies; dynamic fallback derives targeted portfolio deliverables directly from requirement texts. | **RESOLVED** |
 | **Defect G** | Fabricated candidate stories in STAR interview answers | Behavioral questions fabricated fake past stories ("Disagreement over REST vs gRPC..."). | Replaced fabricated stories with authentic candidate answering guidelines and interviewer evaluation rubrics. | **RESOLVED** |
 | **Defect H** | Technical navigation labels without guidance | Sidebar navigation used technical jargon without clear user goal alignment. | Restructured sidebar and overview page into user-goal-oriented sections: Workspace, Career Development, Settings. | **RESOLVED** |
+| **Defect I (M11)** | Superficial bullet rewrites & forced XYZ on non-metric bullets | Rewriter forced artificial metrics into non-metric bullets or made generic transformations. | Multi-layer factual guardrail (entity, metric, temporal, seniority); context-aware rewriter preserving facts; full candidate controls (Accept, Reject, Edit, Restore Original). | **RESOLVED** |
+| **Defect J (M11)** | Lack of transparent requirement-to-evidence mapping | Unclear why a bullet was tailored or what job requirement it addressed. | Structured requirement-to-evidence matrix with explicit matching methods (`ONTOLOGY_EXACT`, `DENSE_OLLAMA`, `LEXICAL_BM25_FALLBACK`, `DENSE_HASH_FALLBACK`) and verification labels. | **RESOLVED** |
 
 ---
 
@@ -22,8 +24,16 @@
 - **Module 3 (JD Intelligence Engine):** Operational. 5/5 tests passing.
 - **Module 4 (Candidate Intelligence & Profile):** Operational. 5/5 tests passing.
 - **Module 5 & 6 (Hybrid Matching & Skill Gap Analysis):** Operational. 4/4 tests passing.
-- **Module 7 (Resume Studio & ATS Generation):** Operational. 4/4 tests passing.
+- **Module 7 & 11 (Resume Studio 2.0 Engineering Upgrade):** Operational. 7/7 dedicated tests passing (49/49 total backend tests passing).
+  - *M11.1 Content Intelligence & Selection:* Section decomposition, prioritization, missing gap detection.
+  - *M11.2 Requirement-to-Evidence Mapping:* Structured matrix with transparent fallback labeling.
+  - *M11.3 Context-Aware Rewriter:* Strong action verbs, technical contribution, zero AI jargon.
+  - *M11.4 5-Layer Factual Guardrail:* Entity, metric, temporal, and seniority preservation with standardized review statuses (`VERIFIED`, `FLAGGED`, `REQUIRES_REVIEW`, `NOT_VERIFIED`).
+  - *M11.5 Resume Composition Engine:* Structured Composition IR, source-to-output provenance, section reordering and 1-click restore.
+  - *M11.6 Interactive Frontend:* Target role context, matrix explorer, section toggles, telemetry, live ATS canvas.
+  - *M11.7 ATS Exporters:* Single-column PDF & DOCX generation, orphan header prevention, Unicode normalization, pre-export validation.
 - **Module 8 (Personalized Learning Roadmaps):** Operational. 4/4 tests passing.
 - **Module 9 (Interview Preparation & Rubric Evaluation):** Operational. 4/4 tests passing.
 - **Module 10 (Job Application Pipeline):** Operational. 2/2 tests passing.
 - **Module E2E (End-to-End Pipeline Journey):** Operational. 1/1 test passing.
+- **CI Workflow (.github/workflows/ci.yml):** Strict linting, typechecking, Next.js build verification, and test execution with no `|| true` suppressions.

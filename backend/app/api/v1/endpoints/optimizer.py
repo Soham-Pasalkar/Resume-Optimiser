@@ -9,6 +9,8 @@ from app.core.deps import get_current_user_id
 from app.models.optimizer import TailoredResume
 from app.modules.optimizer.service import optimizer_service
 from app.schemas.optimizer import (
+    ResumeCompositionIRResponse,
+    SectionToggleRequest,
     TailoredBulletDiffResponse,
     TailoredResumeResponse,
     TailoredResumeSummaryResponse,
@@ -66,8 +68,8 @@ async def tailor_resume(
     user_id: Annotated[uuid.UUID, Depends(get_current_user_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TailoredResumeResponse:
-    """Generate role-targeted resume bullet rewrites enforcing the Google XYZ formula
-    and strict NLI anti-hallucination verification.
+    """Generate role-targeted resume bullet rewrites enforcing strict NLI anti-hallucination verification
+    and structured requirement-to-evidence mapping.
     """
     try:
         tailored = await optimizer_service.create_tailored_resume(
@@ -134,6 +136,58 @@ async def get_tailored_resume(
     return _to_tailored_response(tailored)
 
 
+@router.get(
+    "/tailored-resumes/{tailored_id}/composition",
+    response_model=ResumeCompositionIRResponse,
+    summary="Get full structured intermediate representation (IR) of tailored resume",
+)
+async def get_composition_ir(
+    tailored_id: uuid.UUID,
+    user_id: Annotated[uuid.UUID, Depends(get_current_user_id)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ResumeCompositionIRResponse:
+    """Retrieve full Composition Intermediate Representation (IR) with provenance and mappings."""
+    try:
+        ir = await optimizer_service.get_composition_ir(
+            db=db, user_id=user_id, tailored_id=tailored_id
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from None
+    return ResumeCompositionIRResponse(**ir)
+
+
+@router.put(
+    "/tailored-resumes/{tailored_id}/sections",
+    response_model=TailoredResumeResponse,
+    summary="Toggle section inclusion or update display order",
+)
+async def update_section_visibility(
+    tailored_id: uuid.UUID,
+    payload: SectionToggleRequest,
+    user_id: Annotated[uuid.UUID, Depends(get_current_user_id)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TailoredResumeResponse:
+    """Toggle whether a section is included in the tailored resume or adjust display order."""
+    try:
+        tailored = await optimizer_service.update_section_visibility(
+            db=db,
+            user_id=user_id,
+            tailored_id=tailored_id,
+            section_id=payload.section_id,
+            is_included=payload.is_included,
+            display_order=payload.display_order,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from None
+    return _to_tailored_response(tailored)
+
+
 @router.put(
     "/diffs/{diff_id}",
     response_model=TailoredBulletDiffResponse,
@@ -153,6 +207,46 @@ async def update_diff(
             diff_id=diff_id,
             new_status=payload.status,
             edited_text=payload.edited_text,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from None
+
+    return TailoredBulletDiffResponse(
+        id=diff.id,
+        tailored_resume_id=diff.tailored_resume_id,
+        section_id=diff.section_id,
+        item_id=diff.item_id,
+        bullet_index=diff.bullet_index,
+        original_text=diff.original_text,
+        optimized_text=diff.optimized_text,
+        rationale=diff.rationale,
+        targeted_requirement_id=diff.targeted_requirement_id,
+        nli_verification_status=diff.nli_verification_status,
+        status=diff.status,
+        edited_text=diff.edited_text,
+        created_at=diff.created_at,
+    )
+
+
+@router.post(
+    "/diffs/{diff_id}/restore",
+    response_model=TailoredBulletDiffResponse,
+    summary="Restore a tailored bullet diff to original source text",
+)
+async def restore_diff(
+    diff_id: uuid.UUID,
+    user_id: Annotated[uuid.UUID, Depends(get_current_user_id)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TailoredBulletDiffResponse:
+    """Explicitly restore a diff bullet back to the candidate's original text."""
+    try:
+        diff = await optimizer_service.restore_diff_to_original(
+            db=db,
+            user_id=user_id,
+            diff_id=diff_id,
         )
     except ValueError as exc:
         raise HTTPException(

@@ -1,16 +1,18 @@
-# Resume Studio: Optimization Engine, Factual Guardrails & ATS Document Generation
+# Resume Studio 2.0: Content Intelligence, Factual Guardrails & ATS Document Generation
 
-## 1. Architectural Philosophy
+## 1. Architectural Philosophy: "Optimize Presentation, Not Reality"
 
-The Resume Studio is the core deliverable generator of CareerPilot 2.0. Rather than performing superficial keyword-stuffing or unbounded generative rewrites, the engine operates on three non-negotiable principles:
+Resume Studio 2.0 is the flagship career intelligence subsystem of CareerPilot. It transforms raw candidate experience into tailored, ATS-optimized, role-specific presentations while strictly adhering to factual reality:
 
-1. **Semantic Grounding:** Bullets are rewritten to emphasize accomplishments genuinely aligned with target job requirements.
-2. **Zero Hallucination Tolerance:** The engine refuses to invent candidate metrics, percentages, dollar figures, dates, employers, or ungrounded technologies.
-3. **ATS Mechanical Strictness:** Exported PDF and DOCX files adhere strictly to single-column, parse-safe layouts guaranteed to survive Applicant Tracking System parsers (Workday, Greenhouse, Lever, Taleo, iCIMS).
+1. **Optimize Presentation, Not Reality:** The engine elevates technical clarity and role alignment, but **never** invents qualifications, fabricated metrics, ungrounded technologies, shifted dates, or unearned leadership titles.
+2. **Transparent Evidence Provenance:** Every proposed bullet rewrite and tailored section maps directly back to the candidate's original resume or verified candidate profile.
+3. **Multi-Layer Factual Guardrails:** Layered entity, metric, temporal, and semantic invariant validation guarantees 0% hallucination.
+4. **Candidate Sovereignty:** The candidate retains full authority over every change with 1-click Accept, Reject, Custom Edit, and **Restore Original** controls.
+5. **Deterministic ATS Strictness:** Exporters produce parse-safe single-column layouts with standard font hierarchies, orphan header prevention, and Unicode normalization.
 
 ---
 
-## 2. Document Tailoring Pipeline
+## 2. End-to-End Resume Studio Workflow
 
 ```mermaid
 sequenceDiagram
@@ -18,87 +20,126 @@ sequenceDiagram
     actor Candidate
     participant Studio as Resume Studio Frontend
     participant Service as OptimizerService
+    participant Intel as ContentIntelligenceEngine
     participant Rewriter as BulletRewriter
     participant Guardrail as NLIGuardrail
+    participant Composer as ResumeComposer
     participant Exporter as ResumeExporter
 
-    Candidate->>Studio: Trigger Tailor for Target Role
+    Candidate->>Studio: Trigger Tailor for Target Job
     Studio->>Service: create_tailored_resume(resume_id, jd_id)
-    Service->>Service: Retrieve verified candidate identity (User.full_name, contact)
-    Service->>Service: Prioritize target skills at top of Skills section
-    loop For each work/project bullet
-        Service->>Service: Calculate semantic similarity against all JD requirements
+    Service->>Intel: analyze_and_map(resume, jd, candidate_skills)
+    Note over Intel: Maps requirements, categorizes content decisions & flags missing gaps
+    Intel-->>Service: requirement_mappings, missing_requirements, content_decisions
+    loop For each candidate bullet
         Service->>Rewriter: rewrite_bullet(original_bullet, target_requirement)
-        Rewriter->>Rewriter: Apply Google XYZ Formula
         Rewriter->>Guardrail: verify_bullet(original, optimized, candidate_skills)
-        alt Factual Preservation Passed
-            Guardrail-->>Rewriter: ENTAILMENT
-        else Hallucinated Metric or New Tech
-            Guardrail-->>Rewriter: FLAGGED (revert to rule-based safe transform)
+        alt 5 Layers Validated
+            Guardrail-->>Rewriter: VERIFIED / ENTAILMENT
+        else Hallucinated Entity, Metric or Date
+            Guardrail-->>Rewriter: FLAGGED (Fallback to safe rule-based verb elevation)
         end
-        Rewriter-->>Service: TailoredBulletDiff record
+        Rewriter-->>Service: TailoredBulletDiff
     end
-    Service-->>Studio: TailoredResume with interactive diffs
-    Candidate->>Studio: Review diffs (Accept, Reject, Edit)
-    Candidate->>Studio: Request PDF / DOCX Export
-    Studio->>Exporter: generate_pdf(tailored_content)
-    Exporter-->>Candidate: Single-column ATS-compliant PDF
+    Service->>Composer: build_composition_ir(tailored, diffs)
+    Composer-->>Service: Structured ResumeIR
+    Service-->>Studio: TailoredResume (IR, Mappings, Diffs)
+    Candidate->>Studio: Review Actions (Accept, Reject, Edit, Restore, Toggle Sections)
+    Studio->>Service: update_diff / restore_diff / update_sections
+    Candidate->>Studio: Export ATS Document (PDF / DOCX)
+    Studio->>Exporter: generate_pdf / generate_docx(Composition IR)
+    Exporter-->>Candidate: Single-column ATS-compliant Document
 ```
 
 ---
 
-## 3. Google XYZ Accomplishment Formula
+## 3. Subsystem Specifications
 
-All bullet rewrites enforce Google's executive accomplishment formula:
+### M11.1 — Content Intelligence & Selection Engine
+The `ContentIntelligenceEngine` decomposes the candidate's resume across all structural sections:
+- Professional Summary
+- Work Experience
+- Technical Skills
+- Projects
+- Education & Certifications
+- Awards & Achievements
 
-$$\text{Accomplished } [X], \text{ as measured by } [Y], \text{ by doing } [Z]$$
+**Decision Categorization:**
+- `INCLUDED`: Core foundational evidence or structural section.
+- `PROPOSED_REWRITE`: Relevant item selected for role-specific active phrasing enhancement.
+- `REORDERED`: Skills reordered to prioritize required competencies at the top without discarding others.
+- `EXCLUDED`: Low contextual density or manually toggled off by candidate.
+- `MISSING_INFO`: Job requirement with no substantiating evidence in resume or profile.
 
-- **[X] Active Impact:** Strong action verb initiating the sentence (`Architected`, `Engineered`, `Optimized`, `Administered`, `Automated`).
-- **[Y] Quantifiable Context:** Strictly preserves existing factual quantitative metrics without fabricating numbers.
-- **[Z] Technical Methodology:** The precise technical competency or system architecture leveraged to achieve the outcome.
+### M11.2 — Structured Requirement-to-Evidence Mapping
+Each target JD requirement is mapped to candidate resume items and labeled honestly:
+- `matching_method`:
+  - `ONTOLOGY_EXACT`: Exact canonical skill match in candidate evidence.
+  - `DENSE_OLLAMA`: High-dimensional dense semantic similarity via local Ollama embeddings.
+  - `LEXICAL_BM25_FALLBACK`: Probabilistic token matching when Ollama is unavailable.
+  - `DENSE_HASH_FALLBACK`: Deterministic n-gram hashed vector cosine similarity fallback.
+- `verification_status`:
+  - `CANDIDATE_VERIFIED`: Mapped to a skill explicitly verified by the user in Candidate Profile.
+  - `EXTRACTED_UNCONFIRMED`: Inferred from extracted resume text but unconfirmed by user.
+  - `UNMATCHED`: Identified as a missing requirement gap with actionable advice (no hallucination).
 
-### Action Verb Mapping Table
+### M11.3 — Context-Aware Resume Rewriting Engine
+The `BulletRewriter` upgrades passive descriptions into active technical contributions:
+- Context-Aware Elevation:
+  - If source bullet has metrics (e.g., "reduced latency by 35%"), preserves metrics exactly and emphasizes context.
+  - If source bullet does NOT have metrics, avoids forcing the Google XYZ formula or fabricating metrics; elevates active verbs and technical systems instead.
+  - Banned Jargon: Filters out generic AI filler ("synergy", "spearheaded paradigms", "cutting-edge").
+  - Verb Mapping: Replaces weak verbs (`worked on`, `helped with`, `responsible for`, `handled`, `fixed`) with precise technical impact verbs (`Architected`, `Engineered`, `Orchestrated`, `Diagnosed and resolved`).
 
-| Weak / Passive Phrasing | Google XYZ Elevating Verb |
-| :--- | :--- |
-| worked on | Architected and delivered |
-| helped with | Collaborated to engineer |
-| assisted with | Partnered to implement |
-| responsible for | Orchestrated and managed |
-| handled | Administered and scaled |
-| built | Engineered |
-| made | Developed |
-| wrote | Authored and deployed |
-| fixed | Diagnosed and resolved |
-| improved | Optimized |
+### M11.4 — 5-Layer Factual Preservation Guardrail
+The `NLIGuardrail` protects candidate integrity with zero tolerance for fabrication:
+1. **Layer 1: Entity Validation:** Extracted technologies, frameworks, libraries, tools, and platforms must belong to the allowed set: $\text{Entities}(\text{Original}) \cup \text{Entities}(\text{Candidate Verified})$.
+2. **Layer 2: Quantitative Validation:** Percentages, currencies, multipliers ($2x, 5x$), latencies ($10ms$), and counts must exist in the source bullet.
+3. **Layer 3: Temporal Validation:** Calendar years ($1900-2099$), month names, and durations cannot be injected or shifted.
+4. **Layer 4: Semantic Scope & Seniority Preservation:** Prevents unearned seniority inflation (e.g. elevating developer claims to "Chief Architect", "CTO", or "Sole inventor").
+5. **Layer 5: Standardized Review Statuses:**
+   - `VERIFIED`: Passed all deterministic invariant layers.
+   - `FLAGGED`: Violates entity, metric, temporal, or seniority rules. Never silently accepted.
+   - `REQUIRES_REVIEW`: Semantic shift detected requiring human candidate sign-off.
+   - `NOT_VERIFIED`: Insufficient evidence.
+
+### M11.5 — Resume Composition Engine & Intermediate Representation (IR)
+The `ResumeComposer` produces a structured `ResumeIR`:
+- `candidate_identity`: Factual candidate name, verified email, headline, contact string, and professional links.
+- `sections`: List of sections with `is_included`, `display_order`, items, and composed bullets.
+- `export_sections`: Filtered, sorted snapshot formatted for deterministic rendering.
+- `provenance`: Complete audit trail linking every composed bullet back to source bullet, diff, and target requirement.
+- **Candidate Controls:**
+  - `Accept`: Applies optimized bullet.
+  - `Reject`: Retains original bullet.
+  - `Custom Edit`: Overrides with candidate's exact wording.
+  - `Restore Original`: Reverts any diff back to original text in 1 click.
+  - `Toggle Section`: Include or exclude entire sections from the final document.
+
+### M11.6 — Interactive Resume Studio Frontend
+Located at `/optimizer`:
+- Target Role Context Banner (title, company, requirements mapped vs missing).
+- Telemetry bar (Total diffs, Applied, Pending, Verified, Requirements count).
+- Subsystem tabs: Diff Review Hub, Requirement-to-Evidence Matrix, Section Controls.
+- Live ATS Document Preview Canvas (real-time single-column simulation).
+- Export PDF & DOCX buttons with progress states.
+
+### M11.7 — Reliable ATS Exporters
+The `ResumeExporter` implements single-column document generation:
+- **PDF (ReportLab):** Letter size, 40pt margins, Helvetica typography, `keepWithNext=True` on headings to prevent orphan headers, XML entity and Unicode character sanitization.
+- **DOCX (python-docx):** 0.75-inch standard margins, Arial typography, `keep_with_next=True`, native `List Bullet` styles.
+- **Pre-Export Validation:** Validates that candidate identity and at least one section exist before generating export files.
 
 ---
 
-## 4. Syntactic & Entity Factual Guardrail
+## 4. Verification & Testing Matrix
 
-The `NLIGuardrail` protects candidate integrity by executing a 3-stage factual invariant inspection before any proposed bullet modification is persisted:
-
-1. **Technology Inventory Delta:**
-   $$\Delta_{\text{tech}} = \text{Skills}(\text{Optimized}) - (\text{Skills}(\text{Original}) \cup \text{Skills}(\text{Candidate Verified}))$$
-   If $\Delta_{\text{tech}} \neq \emptyset$, the diff is immediately flagged for factual drift.
-2. **Quantitative Metric Invariant:**
-   $$\Delta_{\text{metric}} = \text{Metrics}(\text{Optimized}) - \text{Metrics}(\text{Original})$$
-   Scans for percentages, dollar figures, multipliers (`3x`), and raw numerals. If any ungrounded metric appears, the diff is rejected.
-3. **Temporal Invariant:**
-   $$\Delta_{\text{date}} = \text{Dates}(\text{Optimized}) - \text{Dates}(\text{Original})$$
-   Guarantees that no new employment dates or graduation years are injected into accomplishments.
-
----
-
-## 5. ATS Layout Guidelines
-
-| Parameter | ReportLab PDF Specification | python-docx Specification |
+| Component | Automated Test | Verification Target |
 | :--- | :--- | :--- |
-| **Page Geometry** | Letter, 40pt margins all sides | Letter, 0.6 inch margins |
-| **Grid System** | Strict single-column flow | Strict single-column flow |
-| **Candidate Name** | Helvetica-Bold, 18pt, Center | Arial Bold, 18pt, Center |
-| **Contact Line** | Helvetica, 9pt, #4B5563, Center | Arial, 9pt, #4B5563, Center |
-| **Section Headings** | Helvetica-Bold, 11pt, #2563EB | Arial Bold, 11pt, #2563EB |
-| **Dividers** | Clean horizontal stroke (0.5pt) | Clean bottom border (0.5pt) |
-| **Bullet Points** | Left indent 15pt, leading 13pt | Left indent 0.2 in, space after 2pt |
-| **ATS Parsers Tested** | Greenhouse, Workday, Lever, Taleo | Greenhouse, Workday, Lever, Taleo |
+| Layered Guardrail | `test_nli_guardrail_factual_preservation` | Rejects new tech, fabricated metrics, dates, and seniority inflation |
+| Content Intelligence | `test_content_intelligence_and_requirement_mapping` | Accurate requirement-to-evidence mapping & missing gap detection |
+| Composition IR | `test_resume_composition_ir_and_provenance` | Structured IR, source traceability, and provenance auditing |
+| Rewriter | `test_bullet_rewriter_google_xyz_formula` | Active verb elevation, fact preservation, and rationale generation |
+| Pre-Export Validation | `test_exporter_pre_validation` | Rejects empty content and missing candidate identity |
+| Document Export | `test_resume_export_pdf_and_docx` | Valid PDF (`%PDF`) and DOCX (`PK\x03\x04`) binary generation |
+| Full API Lifecycle | `test_tailor_resume_api_lifecycle_and_tenancy` | Complete tailoring, review, restore, section toggle, export & tenancy |

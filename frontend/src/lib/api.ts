@@ -644,6 +644,54 @@ export async function deleteMatch(matchId: string): Promise<void> {
 // AI Resume Optimizer & Live Editor API Client
 // ==============================================================================
 
+export interface RequirementEvidenceMapping {
+  requirement_id: string;
+  requirement_text: string;
+  is_mandatory: boolean;
+  canonical_skill_name?: string | null;
+  category?: string | null;
+  matched_section_id?: string | null;
+  matched_section_name?: string | null;
+  matched_item_id?: string | null;
+  matched_bullet_index?: number | null;
+  original_evidence_text?: string | null;
+  matching_method: "ONTOLOGY_EXACT" | "DENSE_OLLAMA" | "LEXICAL_BM25_FALLBACK" | "DENSE_HASH_FALLBACK" | string;
+  confidence_score: number;
+  verification_status: "CANDIDATE_VERIFIED" | "EXTRACTED_UNCONFIRMED" | "UNMATCHED" | string;
+}
+
+export interface MissingRequirementItem {
+  requirement_id: string;
+  requirement_text: string;
+  is_mandatory: boolean;
+  canonical_skill_name?: string | null;
+  category?: string | null;
+  suggested_action: string;
+}
+
+export interface ContentSelectionItem {
+  section_id: string;
+  section_type: string;
+  heading: string;
+  item_id?: string | null;
+  bullet_index?: number | null;
+  content_text: string;
+  decision: "INCLUDED" | "PROPOSED_REWRITE" | "REORDERED" | "EXCLUDED" | "MISSING_INFO" | string;
+  relevance_score: number;
+  matched_requirement_ids: string[];
+  reasoning: string;
+}
+
+export interface ResumeCompositionIR {
+  candidate_identity: Record<string, any>;
+  sections: any[];
+  export_sections: any[];
+  provenance: any[];
+  metadata: Record<string, any>;
+  requirement_mappings: RequirementEvidenceMapping[];
+  missing_requirements: MissingRequirementItem[];
+}
+
 export interface TailoredBulletDiff {
   id: string;
   tailored_resume_id: string;
@@ -654,8 +702,8 @@ export interface TailoredBulletDiff {
   optimized_text: string;
   rationale: string;
   targeted_requirement_id?: string | null;
-  nli_verification_status: "ENTAILMENT" | "NEUTRAL" | "FLAGGED" | string;
-  status: "PENDING" | "ACCEPTED" | "REJECTED" | "EDITED" | string;
+  nli_verification_status: "VERIFIED" | "ENTAILMENT" | "NEUTRAL" | "FLAGGED" | "REQUIRES_REVIEW" | "NOT_VERIFIED" | string;
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "EDITED" | "RESTORED" | string;
   edited_text?: string | null;
   created_at: string;
 }
@@ -752,6 +800,59 @@ export async function updateDiff(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || "Failed to update bullet diff.");
+  }
+  return await res.json();
+}
+
+export async function restoreDiff(diffId: string): Promise<TailoredBulletDiff> {
+  const res = await fetch(`${API_BASE}/optimizer/diffs/${diffId}/restore`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeader(),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to restore bullet diff.");
+  }
+  return await res.json();
+}
+
+export async function toggleSectionVisibility(
+  tailoredId: string,
+  sectionId: string,
+  isIncluded: boolean,
+  displayOrder?: number
+): Promise<TailoredResume> {
+  const res = await fetch(`${API_BASE}/optimizer/tailored-resumes/${tailoredId}/sections`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeader(),
+    },
+    body: JSON.stringify({
+      section_id: sectionId,
+      is_included: isIncluded,
+      display_order: displayOrder,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to update section visibility.");
+  }
+  return await res.json();
+}
+
+export async function getCompositionIR(tailoredId: string): Promise<ResumeCompositionIR> {
+  const res = await fetch(`${API_BASE}/optimizer/tailored-resumes/${tailoredId}/composition`, {
+    headers: {
+      ...authHeader(),
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error("Failed to load composition IR.");
   }
   return await res.json();
 }

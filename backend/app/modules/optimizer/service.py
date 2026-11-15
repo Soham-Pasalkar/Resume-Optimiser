@@ -1,5 +1,6 @@
 import copy
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,12 +13,16 @@ from app.models.resume import Resume, ResumeSection
 from app.models.user import User
 from app.modules.candidate.service import candidate_service
 from app.modules.matching.dense import dense_matcher
+from app.modules.optimizer.composer import resume_composer
 from app.modules.optimizer.exporter import resume_exporter
+from app.modules.optimizer.intelligence import content_intelligence
 from app.modules.optimizer.rewriter import bullet_rewriter
 
 
 class OptimizerService:
-    """Orchestrates role-specific resume tailoring, NLI-verified diff generation, and ATS document export."""
+    """Orchestrates role-specific resume tailoring, requirement-to-evidence mapping,
+    layered factual verification, dynamic composition IR, and ATS document export.
+    """
 
     async def create_tailored_resume(
         self,
@@ -48,7 +53,7 @@ class OptimizerService:
         if not jd:
             raise ValueError("Target job description not found.")
 
-        # 3. Fetch user info for factual candidate identity
+        # 3. Fetch candidate user & profile info for factual candidate identity
         user_stmt = select(User).where(User.id == user_id).options(selectinload(User.profile))
         user_res = await db.execute(user_stmt)
         user = user_res.scalar_one_or_none()
@@ -72,14 +77,35 @@ class OptimizerService:
         # 4. Fetch candidate profile skills
         candidate_skills = await candidate_service.get_profile(db, user_id)
 
-        # Target JD ontology skills for prioritization
+        # 5. Run Content Intelligence & Requirement-to-Evidence Mapping
+        intel_results = await content_intelligence.analyze_and_map(
+            resume=resume,
+            jd=jd,
+            candidate_skills=candidate_skills,
+        )
+
+        req_mappings = intel_results.get("requirement_mappings", [])
+        missing_reqs = intel_results.get("missing_requirements", [])
+        content_decisions = intel_results.get("content_decisions", [])
+
+        # Index mapped requirements by (section_id, item_id, bullet_index)
+        mapped_req_by_bullet: dict[tuple[str, str, int], dict[str, Any]] = {}
+        req_by_id = {r.id: r for r in jd.requirements}
+        for rm in req_mappings:
+            sec_id = rm.get("matched_section_id") or ""
+            itm_id = rm.get("matched_item_id") or ""
+            b_idx = rm.get("matched_bullet_index")
+            if b_idx is not None:
+                mapped_req_by_bullet[(sec_id, itm_id, b_idx)] = rm
+
+        # 6. Target JD ontology skills for prioritization in skills sections
         target_skills = {
             (r.canonical_skill_name or "").lower()
             for r in jd.requirements
             if r.canonical_skill_name
         }
 
-        # 5. Build initial snapshot of tailored content with skills section prioritization
+        # 7. Build initial snapshot of sections
         sections_snapshot = []
         for sec in resume.sections:
             sec_type = (sec.section_type or "").lower()
@@ -113,6 +139,7 @@ class OptimizerService:
                     "id": str(sec.id),
                     "section_type": sec.section_type,
                     "heading": sec.heading,
+                    "is_included": True,
                     "raw_content": raw_content,
                     "display_order": sec.display_order,
                     "items": items_snapshot,
@@ -124,9 +151,14 @@ class OptimizerService:
             "full_name": candidate_name,
             "contact_info": contact_info,
             "sections": sections_snapshot,
+            "raw_sections": sections_snapshot,
+            "requirement_mappings": req_mappings,
+            "missing_requirements": missing_reqs,
+            "content_decisions": content_decisions,
+            "intel_summary": intel_results.get("summary", {}),
         }
 
-        # 6. Create TailoredResume record
+        # 8. Create TailoredResume record
         version_title = f"Tailored for {jd.job_title} at {jd.company_name or 'Target Role'}"
         tailored = TailoredResume(
             user_id=user_id,
@@ -138,9 +170,10 @@ class OptimizerService:
         db.add(tailored)
         await db.flush()
 
-        # 7. Generate tailored diffs with genuine semantic requirement mapping
+        # 9. Generate tailored diffs for experience and project bullets
+        created_diffs: list[TailoredBulletDiff] = []
         for sec in resume.sections:
-            sec_type = sec.section_type.lower()
+            sec_type = (sec.section_type or "").lower()
             if (
                 "experience" not in sec_type
                 and "work" not in sec_type
@@ -154,27 +187,34 @@ class OptimizerService:
                     if len(bullet_text.strip()) < 15:
                         continue
 
-                    # Evaluate bullet against all requirements to find genuinely aligned target
-                    bullet_lower = bullet_text.lower()
-                    best_req = None
-                    best_sim = 0.0
+                    # Check if requirement mapping already associated a requirement
+                    sec_key = (str(sec.id), str(item.id), b_idx)
+                    target_req = None
+                    if sec_key in mapped_req_by_bullet:
+                        req_uuid_str = mapped_req_by_bullet[sec_key]["requirement_id"]
+                        target_req = req_by_id.get(uuid.UUID(req_uuid_str))
 
-                    for req in jd.requirements:
-                        canonical = (req.canonical_skill_name or "").lower()
-                        sim = 0.0
-                        if canonical and canonical in bullet_lower:
-                            sim = 0.85
-                        else:
-                            sim, _ = await dense_matcher.find_best_evidence_match(
-                                req.requirement_text, [bullet_text]
-                            )
+                    if not target_req:
+                        # Find best semantic requirement if similarity meets threshold
+                        bullet_lower = bullet_text.lower()
+                        best_req = None
+                        best_sim = 0.0
 
-                        if sim > best_sim:
-                            best_sim = sim
-                            best_req = req
+                        for req in jd.requirements:
+                            canonical = (req.canonical_skill_name or "").lower()
+                            sim = 0.0
+                            if canonical and canonical in bullet_lower:
+                                sim = 0.85
+                            else:
+                                sim, _ = await dense_matcher.find_best_evidence_match(
+                                    req.requirement_text, [bullet_text]
+                                )
 
-                    # Only link to requirement if similarity meets threshold, otherwise rewrite for role
-                    target_req = best_req if best_sim >= 0.45 else None
+                            if sim > best_sim:
+                                best_sim = sim
+                                best_req = req
+
+                        target_req = best_req if best_sim >= 0.45 else None
 
                     rewrite_result = await bullet_rewriter.rewrite_bullet(
                         original_text=bullet_text,
@@ -198,6 +238,18 @@ class OptimizerService:
                         status="PENDING",
                     )
                     db.add(diff)
+                    created_diffs.append(diff)
+
+        # 10. Re-sync content snapshot via resume_composer
+        synced = resume_composer.sync_tailored_content_snapshot(tailored, created_diffs)
+        # Preserve intelligence metadata
+        synced["requirement_mappings"] = req_mappings
+        synced["missing_requirements"] = missing_reqs
+        synced["content_decisions"] = content_decisions
+        synced["intel_summary"] = intel_results.get("summary", {})
+
+        tailored.tailored_content = synced
+        flag_modified(tailored, "tailored_content")
 
         await db.commit()
         return await self.get_tailored_resume(db, user_id, tailored.id)  # type: ignore
@@ -214,7 +266,7 @@ class OptimizerService:
             .options(
                 selectinload(TailoredResume.diffs),
                 selectinload(TailoredResume.source_resume),
-                selectinload(TailoredResume.target_jd),
+                selectinload(TailoredResume.target_jd).selectinload(JobDescription.requirements),
             )
         )
         res = await db.execute(stmt)
@@ -232,6 +284,7 @@ class OptimizerService:
             .options(
                 selectinload(TailoredResume.source_resume),
                 selectinload(TailoredResume.target_jd),
+                selectinload(TailoredResume.diffs),
             )
         )
         res = await db.execute(stmt)
@@ -250,59 +303,114 @@ class OptimizerService:
             select(TailoredBulletDiff)
             .join(TailoredResume, TailoredBulletDiff.tailored_resume_id == TailoredResume.id)
             .where(TailoredBulletDiff.id == diff_id, TailoredResume.user_id == user_id)
-            .options(selectinload(TailoredBulletDiff.tailored_resume))
+            .options(
+                selectinload(TailoredBulletDiff.tailored_resume).selectinload(
+                    TailoredResume.diffs
+                )
+            )
         )
         res = await db.execute(stmt)
         diff = res.scalar_one_or_none()
         if not diff:
             raise ValueError("Diff not found or unauthorized.")
 
+        # Update status
         diff.status = new_status
-        if edited_text is not None:
+        if new_status == "RESTORED":
+            diff.status = "REJECTED"
+            diff.edited_text = None
+        elif edited_text is not None:
             diff.edited_text = edited_text.strip()
 
-        # Update tailored_content snapshot
+        # Update tailored_content snapshot using resume_composer
         tailored = diff.tailored_resume
-        content = copy.deepcopy(tailored.tailored_content)
+        existing_intel = {
+            "requirement_mappings": tailored.tailored_content.get("requirement_mappings", []),
+            "missing_requirements": tailored.tailored_content.get("missing_requirements", []),
+            "content_decisions": tailored.tailored_content.get("content_decisions", []),
+            "intel_summary": tailored.tailored_content.get("intel_summary", {}),
+        }
 
-        # Resolve active text for this bullet
-        active_text = diff.original_text
-        if new_status == "ACCEPTED":
-            active_text = diff.optimized_text
-        elif new_status == "EDITED" and diff.edited_text:
-            active_text = diff.edited_text
-        elif new_status == "REJECTED":
-            active_text = diff.original_text
-
-        # Locate section and item in snapshot
-        updated = False
-        for sec in content.get("sections", []):
-            if diff.section_id and sec.get("id") == diff.section_id:
-                for item in sec.get("items", []):
-                    if diff.item_id and item.get("id") == diff.item_id:
-                        bullets = item.get("bullets", [])
-                        if 0 <= diff.bullet_index < len(bullets):
-                            bullets[diff.bullet_index] = active_text
-                            item["bullets"] = bullets
-                            updated = True
-                            break
-            if not updated:
-                # Match by original text
-                for item in sec.get("items", []):
-                    bullets = item.get("bullets", [])
-                    for i, b in enumerate(bullets):
-                        if b == diff.original_text:
-                            bullets[i] = active_text
-                            item["bullets"] = bullets
-                            updated = True
-                            break
-
-        tailored.tailored_content = content
+        synced = resume_composer.sync_tailored_content_snapshot(tailored, tailored.diffs)
+        synced.update(existing_intel)
+        tailored.tailored_content = synced
         flag_modified(tailored, "tailored_content")
+
         await db.commit()
         await db.refresh(tailored)
         await db.refresh(diff)
         return diff
+
+    async def restore_diff_to_original(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        diff_id: uuid.UUID,
+    ) -> TailoredBulletDiff:
+        """Explicitly restore a diff bullet to its original text."""
+        return await self.update_diff_status(
+            db=db,
+            user_id=user_id,
+            diff_id=diff_id,
+            new_status="REJECTED",
+            edited_text=None,
+        )
+
+    async def update_section_visibility(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        tailored_id: uuid.UUID,
+        section_id: str,
+        is_included: bool,
+        display_order: int | None = None,
+    ) -> TailoredResume:
+        """Toggle section inclusion and/or update display order in the tailored snapshot."""
+        tailored = await self.get_tailored_resume(db, user_id, tailored_id)
+        if not tailored:
+            raise ValueError("Tailored resume not found.")
+
+        content = copy.deepcopy(tailored.tailored_content)
+        raw_secs = content.get("raw_sections", content.get("sections", []))
+
+        for sec in raw_secs:
+            if str(sec.get("id")) == str(section_id):
+                sec["is_included"] = is_included
+                if display_order is not None:
+                    sec["display_order"] = display_order
+
+        content["raw_sections"] = raw_secs
+        tailored.tailored_content = content
+
+        synced = resume_composer.sync_tailored_content_snapshot(tailored, tailored.diffs)
+        # Preserve intelligence metadata
+        for k in ["requirement_mappings", "missing_requirements", "content_decisions", "intel_summary"]:
+            if k in content:
+                synced[k] = content[k]
+
+        tailored.tailored_content = synced
+        flag_modified(tailored, "tailored_content")
+
+        await db.commit()
+        await db.refresh(tailored)
+        return tailored
+
+    async def get_composition_ir(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        tailored_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Fetch structured Intermediate Representation (IR) of tailored resume."""
+        tailored = await self.get_tailored_resume(db, user_id, tailored_id)
+        if not tailored:
+            raise ValueError("Tailored resume not found.")
+
+        ir = resume_composer.build_composition_ir(tailored, tailored.diffs)
+        content = tailored.tailored_content or {}
+        ir["requirement_mappings"] = content.get("requirement_mappings", [])
+        ir["missing_requirements"] = content.get("missing_requirements", [])
+        return ir
 
     async def export_pdf(
         self,
