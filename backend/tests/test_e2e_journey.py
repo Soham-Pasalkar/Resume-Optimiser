@@ -175,6 +175,8 @@ async def test_full_careerpilot_e2e_journey(
     assert tailor_resp.status_code == 201
     tailored = tailor_resp.json()
     tailored_id = tailored["id"]
+    assert tailored["id"] is not None
+    assert tailored["tailored_content"]["candidate_name"] == "Devin Principal Architect"
     assert len(tailored["diffs"]) > 0
 
     # Accept first diff and verify NLI verification status

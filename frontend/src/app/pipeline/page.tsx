@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Kanban,
   Table,
@@ -58,7 +59,11 @@ const STAGES = [
   { key: "REJECTED", label: "Archived", color: "border-rose-400 text-rose-700 bg-rose-50" },
 ];
 
-export default function PipelinePage() {
+function PipelineContent() {
+  const searchParams = useSearchParams();
+  const queryJdId = searchParams.get("jd_id");
+  const queryMatchId = searchParams.get("match_id");
+
   const [applications, setApplications] = useState<JobApplicationSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"KANBAN" | "TABLE">("KANBAN");
@@ -108,9 +113,12 @@ export default function PipelinePage() {
 
   useEffect(() => {
     loadData();
-  }, [searchQuery]);
+    if (queryJdId || queryMatchId) {
+      openCreateModal(queryJdId, queryMatchId);
+    }
+  }, [searchQuery, queryJdId, queryMatchId]);
 
-  const openCreateModal = async () => {
+  const openCreateModal = async (preselectJdId?: string | null, preselectMatchId?: string | null) => {
     setShowCreateModal(true);
     try {
       const [jList, mList, rList] = await Promise.all([
@@ -121,6 +129,24 @@ export default function PipelinePage() {
       setJobs(jList);
       setMatches(mList);
       setTailoredResumes(rList);
+
+      if (preselectJdId) {
+        const jd = jList.find((j) => j.id === preselectJdId);
+        if (jd) {
+          setNewAppForm((prev) => ({
+            ...prev,
+            job_description_id: preselectJdId,
+            company_name: jd.company_name || prev.company_name,
+            job_title: jd.job_title || prev.job_title,
+          }));
+        }
+      }
+      if (preselectMatchId) {
+        setNewAppForm((prev) => ({
+          ...prev,
+          match_evaluation_id: preselectMatchId,
+        }));
+      }
     } catch {
       // Ignored
     }
@@ -303,7 +329,7 @@ export default function PipelinePage() {
             </button>
           )}
 
-          <button onClick={openCreateModal} className="btn-primary flex items-center gap-2 text-xs py-2 px-3.5">
+          <button onClick={() => openCreateModal()} className="btn-primary flex items-center gap-2 text-xs py-2 px-3.5">
             <Plus className="w-4 h-4" />
             <span>New Application</span>
           </button>
@@ -373,7 +399,7 @@ export default function PipelinePage() {
               Add your first target opportunity, attach tailored resumes and match reports, and manage interviews effortlessly.
             </p>
           </div>
-          <button onClick={openCreateModal} className="btn-primary inline-flex items-center gap-2 mt-2">
+          <button onClick={() => openCreateModal()} className="btn-primary inline-flex items-center gap-2 mt-2">
             <Plus className="w-4 h-4" />
             <span>Add First Application</span>
           </button>
@@ -1014,5 +1040,19 @@ export default function PipelinePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PipelinePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="surface p-12 text-center text-xs text-soft-muted rounded-2xl">
+          Loading application tracker...
+        </div>
+      }
+    >
+      <PipelineContent />
+    </Suspense>
   );
 }
