@@ -128,6 +128,8 @@ class ResumeComposer:
                         }
                     )
 
+                desc = item.get("description") or item.get("text") or ""
+
                 composed_items.append(
                     {
                         "id": item_id,
@@ -137,6 +139,7 @@ class ResumeComposer:
                         "start_date": start_date,
                         "end_date": end_date,
                         "is_current": is_current,
+                        "description": desc,
                         "bullets": composed_bullets,
                         "rendered_bullets": [b["text"] for b in composed_bullets],
                     }
@@ -190,6 +193,7 @@ class ResumeComposer:
                         "start_date": itm["start_date"],
                         "end_date": itm["end_date"],
                         "is_current": itm["is_current"],
+                        "description": itm.get("description", ""),
                         "bullets": itm["rendered_bullets"],
                     }
                     for itm in sec["items"]

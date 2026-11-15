@@ -655,9 +655,56 @@ export interface RequirementEvidenceMapping {
   matched_item_id?: string | null;
   matched_bullet_index?: number | null;
   original_evidence_text?: string | null;
-  matching_method: "ONTOLOGY_EXACT" | "DENSE_OLLAMA" | "LEXICAL_BM25_FALLBACK" | "DENSE_HASH_FALLBACK" | string;
+  matching_method: "ONTOLOGY_EXACT" | "DENSE_OLLAMA" | "LEXICAL_BM25_FALLBACK" | "DENSE_HASH_FALLBACK" | "PROFILE_SKILL_MATCH" | string;
   confidence_score: number;
   verification_status: "CANDIDATE_VERIFIED" | "EXTRACTED_UNCONFIRMED" | "UNMATCHED" | string;
+  match_category?: "DEMONSTRATED" | "TRANSFERABLE" | "PROFILE_LISTED" | "MISSING" | string;
+  explanation?: string;
+  requires_human_verification?: boolean;
+  suggested_action?: string | null;
+}
+
+export interface JobCompatibilityAnalysis {
+  score: number;
+  breakdown: {
+    mandatory_score: number;
+    preferred_score: number;
+    transferable_score: number;
+    profile_score: number;
+    depth_score: number;
+  };
+  tier_counts: {
+    demonstrated: number;
+    transferable: number;
+    profile_listed: number;
+    missing: number;
+    total: number;
+  };
+  strengths: string[];
+  gaps: string[];
+  recommendations: string[];
+  disclaimer: string;
+}
+
+export interface ATSReadabilityAnalysis {
+  score: number;
+  breakdown: {
+    standard_headings: number;
+    contact_completeness: number;
+    document_structure: number;
+    date_consistency: number;
+    bullet_clarity: number;
+    text_extraction_validation: number;
+  };
+  extracted_character_count: number;
+  page_count: number;
+  findings: string[];
+  disclaimer: string;
+}
+
+export interface ATSAnalysis {
+  job_compatibility: JobCompatibilityAnalysis;
+  ats_readability: ATSReadabilityAnalysis;
 }
 
 export interface MissingRequirementItem {
@@ -883,6 +930,67 @@ export async function exportDOCX(tailoredId: string): Promise<Blob> {
   return await res.blob();
 }
 
+export async function getATSAnalysis(tailoredId: string): Promise<ATSAnalysis> {
+  const res = await fetch(`${API_BASE}/optimizer/tailored-resumes/${tailoredId}/ats-analysis`, {
+    headers: {
+      ...authHeader(),
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error("Failed to load ATS analysis.");
+  }
+  return await res.json();
+}
+
+export async function addCustomEvidence(
+  tailoredId: string,
+  data: {
+    requirement_id: string;
+    evidence_text: string;
+    section_name?: string;
+    match_category?: string;
+  }
+): Promise<TailoredResume> {
+  const res = await fetch(`${API_BASE}/optimizer/tailored-resumes/${tailoredId}/custom-evidence`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeader(),
+    },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to attach custom evidence.");
+  }
+  return await res.json();
+}
+
+export async function submitMilestoneEvidence(
+  milestoneId: string,
+  data: {
+    evidence_text: string;
+    github_url?: string;
+    demo_url?: string;
+    test_results?: string;
+  }
+): Promise<LearningMilestone> {
+  const res = await fetch(`${API_BASE}/learning/milestones/${milestoneId}/evidence`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeader(),
+    },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to submit milestone evidence.");
+  }
+  return await res.json();
+}
+
 export async function deleteTailoredResume(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/optimizer/tailored-resumes/${id}`, {
     method: "DELETE",
@@ -912,8 +1020,17 @@ export interface LearningMilestone {
   skill_name: string;
   milestone_title: string;
   description: string;
+  why_it_matters?: string | null;
+  prerequisites?: string[];
+  learning_objectives?: string[];
   curated_resources: CuratedResource[];
+  practical_exercises?: string[];
   practical_project_brief?: string | null;
+  expected_deliverables?: string[];
+  verification_criteria?: string[];
+  estimated_hours?: number;
+  completed_evidence?: Record<string, any> | null;
+  evidence_verified?: boolean;
   is_completed: boolean;
   created_at: string;
 }

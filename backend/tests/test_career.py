@@ -282,15 +282,38 @@ async def test_career_api_lifecycle(async_client: AsyncClient, db_session: Async
     milestone_0 = detail_roadmap.json()["milestones"][0]
     milestone_id = milestone_0["id"]
     assert milestone_0["is_completed"] is False
+    # Verify 10 structured milestone elements
+    assert milestone_0["why_it_matters"] is not None
+    assert len(milestone_0["prerequisites"]) > 0
+    assert len(milestone_0["learning_objectives"]) > 0
+    assert len(milestone_0["curated_resources"]) > 0
+    assert len(milestone_0["practical_exercises"]) > 0
+    assert milestone_0["practical_project_brief"] is not None
+    assert len(milestone_0["expected_deliverables"]) > 0
+    assert len(milestone_0["verification_criteria"]) > 0
+    assert milestone_0["estimated_hours"] > 0
 
-    # 8. Toggle Milestone Completion
-    toggle_resp = await async_client.put(
-        f"/api/v1/learning/milestones/{milestone_id}",
+    # 8. Submit Milestone Project Evidence (verifies deliverable and syncs to Candidate Profile)
+    ev_resp = await async_client.post(
+        f"/api/v1/learning/milestones/{milestone_id}/evidence",
         headers=headers_a,
-        json={"is_completed": True},
+        json={
+            "evidence_text": "Built containerized automated pipeline with full test coverage and Great Expectations data assertions.",
+            "github_url": "https://github.com/candidate/spark-etl-pipeline",
+            "test_results": "15 unit tests passing, zero errors.",
+        },
     )
-    assert toggle_resp.status_code == 200
-    assert toggle_resp.json()["is_completed"] is True
+    assert ev_resp.status_code == 200
+    ev_data = ev_resp.json()
+    assert ev_data["is_completed"] is True
+    assert ev_data["evidence_verified"] is True
+    assert ev_data["completed_evidence"]["github_url"] == "https://github.com/candidate/spark-etl-pipeline"
+
+    # Verify skill was synchronized to Candidate Profile
+    prof_resp = await async_client.get("/api/v1/candidate/profile", headers=headers_a)
+    assert prof_resp.status_code == 200
+    prof_skills = prof_resp.json()
+    assert any(s["skill_name"].lower() == milestone_0["skill_name"].lower() and s["is_user_verified"] for s in prof_skills)
 
     # 9. Generate Interview Prep
     prep_resp = await async_client.post(

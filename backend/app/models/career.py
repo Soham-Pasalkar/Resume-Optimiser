@@ -94,6 +94,49 @@ class LearningMilestone(TimestampedBase):
         Text,
         nullable=True,
     )
+    why_it_matters: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    prerequisites: Mapped[list] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    learning_objectives: Mapped[list] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    practical_exercises: Mapped[list] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    expected_deliverables: Mapped[list] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    verification_criteria: Mapped[list] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    estimated_hours: Mapped[int] = mapped_column(
+        Integer,
+        default=10,
+        nullable=False,
+    )
+    completed_evidence: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+    evidence_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
     is_completed: Mapped[bool] = mapped_column(
         Boolean,
         default=False,

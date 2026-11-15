@@ -35,6 +35,8 @@ class CandidateProfileBuilder:
                             "experience" in section_type
                             or "work" in section_type
                             or "project" in section_type
+                            or "internship" in section_type
+                            or "leadership" in section_type
                         )
 
                         if canonical not in extracted or (

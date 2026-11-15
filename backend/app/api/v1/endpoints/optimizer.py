@@ -9,6 +9,8 @@ from app.core.deps import get_current_user_id
 from app.models.optimizer import TailoredResume
 from app.modules.optimizer.service import optimizer_service
 from app.schemas.optimizer import (
+    ATSAnalysisResponse,
+    CustomEvidenceRequest,
     ResumeCompositionIRResponse,
     SectionToggleRequest,
     TailoredBulletDiffResponse,
@@ -269,6 +271,59 @@ async def restore_diff(
         edited_text=diff.edited_text,
         created_at=diff.created_at,
     )
+
+
+@router.get(
+    "/tailored-resumes/{tailored_id}/ats-analysis",
+    response_model=ATSAnalysisResponse,
+    summary="Get full ATS Job Compatibility and Readability Score analysis",
+)
+async def get_ats_analysis(
+    tailored_id: uuid.UUID,
+    user_id: Annotated[uuid.UUID, Depends(get_current_user_id)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ATSAnalysisResponse:
+    """Retrieve explainable dual-metric ATS analysis with byte-level extraction audit."""
+    try:
+        analysis = await optimizer_service.get_ats_analysis(
+            db=db, user_id=user_id, tailored_id=tailored_id
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from None
+    return ATSAnalysisResponse(**analysis)
+
+
+@router.post(
+    "/tailored-resumes/{tailored_id}/custom-evidence",
+    response_model=TailoredResumeResponse,
+    summary="Attach verified candidate evidence to a requirement",
+)
+async def add_custom_evidence(
+    tailored_id: uuid.UUID,
+    payload: CustomEvidenceRequest,
+    user_id: Annotated[uuid.UUID, Depends(get_current_user_id)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TailoredResumeResponse:
+    """Attach candidate-verified evidence to a missing or transferable requirement."""
+    try:
+        tailored = await optimizer_service.add_custom_evidence(
+            db=db,
+            user_id=user_id,
+            tailored_id=tailored_id,
+            requirement_id=payload.requirement_id,
+            evidence_text=payload.evidence_text,
+            section_name=payload.section_name,
+            match_category=payload.match_category,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from None
+    return _to_tailored_response(tailored)
 
 
 @router.post(

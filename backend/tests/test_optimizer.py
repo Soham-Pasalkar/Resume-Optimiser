@@ -8,6 +8,7 @@ from app.models.candidate import CandidateSkill
 from app.models.jd import JDRequirement, JobDescription
 from app.models.optimizer import TailoredBulletDiff, TailoredResume
 from app.models.resume import Resume, ResumeItem, ResumeSection
+from app.modules.optimizer.ats_scorer import ats_evaluator
 from app.modules.optimizer.composer import resume_composer
 from app.modules.optimizer.exporter import resume_exporter
 from app.modules.optimizer.intelligence import content_intelligence
@@ -321,6 +322,158 @@ def test_exporter_pre_validation():
         resume_exporter.generate_pdf({"candidate_name": "John Doe", "sections": []})
 
 
+def test_ats_evaluator_and_four_tier_taxonomy():
+    jd = JobDescription(
+        user_id=uuid.uuid4(),
+        job_title="Senior Data Engineer",
+        company_name="Citi",
+        raw_text="Citi Senior Data Engineer",
+    )
+    req1 = JDRequirement(
+        id=uuid.uuid4(),
+        jd_id=jd.id,
+        requirement_text="5+ years of building large-scale ETL pipelines with PySpark.",
+        is_mandatory=True,
+        canonical_skill_name="Spark",
+        category="technical_skill",
+    )
+    req2 = JDRequirement(
+        id=uuid.uuid4(),
+        jd_id=jd.id,
+        requirement_text="Deep expertise in Snowflake analytical warehousing.",
+        is_mandatory=True,
+        canonical_skill_name="Snowflake",
+        category="technical_skill",
+    )
+    req3 = JDRequirement(
+        id=uuid.uuid4(),
+        jd_id=jd.id,
+        requirement_text="Experience with SQL relational databases.",
+        is_mandatory=False,
+        canonical_skill_name="SQL",
+        category="technical_skill",
+    )
+    jd.requirements = [req1, req2, req3]
+
+    content = {
+        "candidate_name": "Elena Rostova",
+        "contact_info": "elena@example.com | San Francisco, CA | linkedin.com/in/elena | github.com/elena",
+        "sections": [
+            {
+                "heading": "Professional Summary",
+                "section_type": "SUMMARY",
+                "raw_content": "Experienced Data Engineer specializing in distributed systems and cloud data architecture.",
+            },
+            {
+                "heading": "Work Experience",
+                "section_type": "EXPERIENCE",
+                "items": [
+                    {
+                        "title": "Lead Data Engineer",
+                        "organization": "Enterprise Data Corp",
+                        "location": "San Francisco, CA",
+                        "start_date": "2021",
+                        "end_date": "Present",
+                        "bullets": [
+                            "Architected distributed PySpark ETL pipelines processing 50M daily events with Delta Lake.",
+                            "Optimized SQL analytical queries reducing query execution duration by 45%.",
+                            "Engineered automated data validation suites asserting schema integrity across data marts.",
+                        ],
+                    },
+                    {
+                        "title": "Data Engineer",
+                        "organization": "Fintech Solutions",
+                        "location": "New York, NY",
+                        "start_date": "2019",
+                        "end_date": "2021",
+                        "bullets": [
+                            "Implemented PostgreSQL indexing and table partitioning mitigating I/O contention.",
+                            "Deployed containerized batch processors with automated error alerting.",
+                        ],
+                    },
+                ],
+            },
+            {
+                "heading": "Education",
+                "section_type": "EDUCATION",
+                "items": [
+                    {
+                        "title": "B.S. in Computer Science",
+                        "organization": "University of California, Berkeley",
+                        "location": "Berkeley, CA",
+                        "start_date": "2015",
+                        "end_date": "2019",
+                        "bullets": [],
+                        "description": "Graduated Magna Cum Laude. Coursework in Distributed Systems, Database Architecture, and Algorithms.",
+                    }
+                ],
+            },
+            {
+                "heading": "Technical Skills",
+                "section_type": "SKILLS",
+                "raw_content": "PySpark, Python, SQL, PostgreSQL, Kafka, Docker, Kubernetes, Snowflake",
+            },
+        ],
+    }
+
+    # Generate PDF bytes
+    pdf_bytes = resume_exporter.generate_pdf(content)
+    assert pdf_bytes.startswith(b"%PDF")
+
+    # Generate DOCX bytes
+    docx_bytes = resume_exporter.generate_docx(content)
+    assert len(docx_bytes) > 500
+
+    # 1. Evaluate Job Compatibility Score
+    mock_mappings = [
+        {
+            "requirement_id": str(req1.id),
+            "match_category": "DEMONSTRATED",
+            "is_mandatory": True,
+            "confidence_score": 0.90,
+        },
+        {
+            "requirement_id": str(req2.id),
+            "match_category": "PROFILE_LISTED",
+            "is_mandatory": True,
+            "confidence_score": 0.60,
+        },
+        {
+            "requirement_id": str(req3.id),
+            "match_category": "DEMONSTRATED",
+            "is_mandatory": False,
+            "confidence_score": 0.85,
+        },
+    ]
+
+    comp_eval = ats_evaluator.evaluate_job_compatibility(
+        tailored_content=content,
+        jd=jd,
+        requirement_mappings=mock_mappings,
+    )
+
+    assert 0 <= comp_eval["score"] <= 100
+    assert comp_eval["tier_counts"]["demonstrated"] == 2
+    assert comp_eval["tier_counts"]["profile_listed"] == 1
+    assert len(comp_eval["strengths"]) > 0
+    assert "CareerPilot Algorithmic Estimate" in comp_eval["disclaimer"]
+
+    # 2. Evaluate ATS Readability Score with real PDF byte extraction
+    read_eval = ats_evaluator.evaluate_ats_readability(
+        tailored_content=content,
+        document_bytes=pdf_bytes,
+        file_format="pdf",
+    )
+
+    assert read_eval["score"] >= 85.0
+    assert read_eval["extracted_character_count"] > 200
+    assert read_eval["page_count"] >= 1
+    assert read_eval["breakdown"]["text_extraction_validation"] == 20.0
+    assert read_eval["breakdown"]["standard_headings"] == 20.0
+    assert read_eval["breakdown"]["contact_completeness"] == 15.0
+    assert any("byte-level text extraction" in f.lower() for f in read_eval["findings"])
+
+
 @pytest.mark.asyncio
 async def test_tailor_resume_api_lifecycle_and_tenancy(
     async_client: AsyncClient,
@@ -389,7 +542,8 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
         },
     )
     assert jd_resp.status_code == 201
-    jd_id = jd_resp.json()["id"]
+    jd_data = jd_resp.json()
+    jd_id = jd_data["id"]
 
     # 4. Request Resume Tailoring
     tailor_resp = await async_client.post(
@@ -507,6 +661,40 @@ async def test_tailor_resume_api_lifecycle_and_tenancy(
     assert docx_resp.status_code == 200
     assert "wordprocessingml" in docx_resp.headers["content-type"]
     assert len(docx_resp.content) > 500
+
+    # 13b. Check ATS Analysis endpoint
+    ats_resp = await async_client.get(
+        f"/api/v1/optimizer/tailored-resumes/{tailored_id}/ats-analysis",
+        headers=headers_a,
+    )
+    assert ats_resp.status_code == 200
+    ats_data = ats_resp.json()
+    assert "job_compatibility" in ats_data
+    assert "ats_readability" in ats_data
+    assert 0 <= ats_data["job_compatibility"]["score"] <= 100
+    assert 0 <= ats_data["ats_readability"]["score"] <= 100
+    assert ats_data["ats_readability"]["extracted_character_count"] > 100
+    assert ats_data["ats_readability"]["page_count"] >= 1
+
+    # 13c. Add Custom Evidence to a requirement
+    # Pick first requirement from JD
+    jd_req_id = jd_data["requirements"][0]["id"]
+    custom_ev_resp = await async_client.post(
+        f"/api/v1/optimizer/tailored-resumes/{tailored_id}/custom-evidence",
+        headers=headers_a,
+        json={
+            "requirement_id": jd_req_id,
+            "evidence_text": "Completed advanced enterprise production data pipeline deployment with Delta Lake and Spark.",
+            "section_name": "Project Portfolio",
+            "match_category": "DEMONSTRATED",
+        },
+    )
+    assert custom_ev_resp.status_code == 200
+    updated_tailored = custom_ev_resp.json()
+    req_mappings = updated_tailored["tailored_content"]["requirement_mappings"]
+    target_mapping = next(m for m in req_mappings if m["requirement_id"] == jd_req_id)
+    assert target_mapping["match_category"] == "DEMONSTRATED"
+    assert target_mapping["verification_status"] == "CANDIDATE_VERIFIED"
 
     # 14. Multi-tenant boundary check with User B
     user_b_email = f"tailor_b_{uuid.uuid4().hex[:6]}@example.com"

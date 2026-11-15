@@ -24,6 +24,7 @@ import {
   getRoadmap,
   listMatches,
   listRoadmaps,
+  submitMilestoneEvidence,
   toggleMilestone,
   LearningMilestone,
   LearningRoadmap,
@@ -42,6 +43,14 @@ export default function LearningPage() {
   const [showModal, setShowModal] = useState(false);
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState("");
+
+  // Submit Evidence Modal
+  const [evidenceMilestone, setEvidenceMilestone] = useState<LearningMilestone | null>(null);
+  const [evidenceText, setEvidenceText] = useState("");
+  const [evidenceGithub, setEvidenceGithub] = useState("");
+  const [evidenceDemo, setEvidenceDemo] = useState("");
+  const [evidenceTests, setEvidenceTests] = useState("");
+  const [submittingEvidence, setSubmittingEvidence] = useState(false);
 
   const loadData = async () => {
     try {
@@ -132,6 +141,36 @@ export default function LearningPage() {
       // Rollback on failure
       const reverted = await getRoadmap(selectedRoadmap.id);
       setSelectedRoadmap(reverted);
+    }
+  };
+
+  const handleSubmitEvidence = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!evidenceMilestone || !evidenceText.trim()) return;
+
+    try {
+      setSubmittingEvidence(true);
+      await submitMilestoneEvidence(evidenceMilestone.id, {
+        evidence_text: evidenceText.trim(),
+        github_url: evidenceGithub.trim() || undefined,
+        demo_url: evidenceDemo.trim() || undefined,
+        test_results: evidenceTests.trim() || undefined,
+      });
+      setEvidenceMilestone(null);
+      setEvidenceText("");
+      setEvidenceGithub("");
+      setEvidenceDemo("");
+      setEvidenceTests("");
+      if (selectedRoadmap) {
+        const refreshed = await getRoadmap(selectedRoadmap.id);
+        setSelectedRoadmap(refreshed);
+      }
+      const updatedList = await listRoadmaps();
+      setRoadmaps(updatedList);
+    } catch (err: any) {
+      setError(err.message || "Failed to submit project deliverable evidence.");
+    } finally {
+      setSubmittingEvidence(false);
     }
   };
 
@@ -417,17 +456,54 @@ export default function LearningPage() {
                       </div>
                     </div>
 
-                    {/* Description */}
-                    <p className="text-sm text-soft-muted leading-relaxed pl-9">
-                      {m.description}
-                    </p>
+                    {/* Description & Why It Matters */}
+                    <div className="pl-9 space-y-2">
+                      {m.why_it_matters && (
+                        <div className="well p-3 rounded-xl border border-white/60 text-xs text-soft-text space-y-0.5">
+                          <span className="text-[10px] font-bold uppercase text-soft-blue flex items-center gap-1">
+                            <TrendingUp className="w-3 h-3" />
+                            Why It Matters for Target Role
+                          </span>
+                          <p className="italic text-slate-700">{m.why_it_matters}</p>
+                        </div>
+                      )}
+                      <p className="text-xs text-soft-muted leading-relaxed">
+                        {m.description}
+                      </p>
+                    </div>
+
+                    {/* Prerequisites & Objectives */}
+                    {((m.prerequisites && m.prerequisites.length > 0) || (m.learning_objectives && m.learning_objectives.length > 0)) && (
+                      <div className="pl-9 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {m.prerequisites && m.prerequisites.length > 0 && (
+                          <div className="well p-3 rounded-xl text-xs space-y-1">
+                            <span className="text-[10px] font-bold uppercase text-soft-muted">Prerequisites</span>
+                            <ul className="list-disc pl-4 space-y-0.5 text-slate-600 text-[11px]">
+                              {m.prerequisites.map((p, pIdx) => (
+                                <li key={pIdx}>{p}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {m.learning_objectives && m.learning_objectives.length > 0 && (
+                          <div className="well p-3 rounded-xl text-xs space-y-1">
+                            <span className="text-[10px] font-bold uppercase text-soft-muted">Learning Objectives</span>
+                            <ul className="list-disc pl-4 space-y-0.5 text-slate-600 text-[11px]">
+                              {m.learning_objectives.map((obj, oIdx) => (
+                                <li key={oIdx}>{obj}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Curated Resources */}
                     {m.curated_resources && m.curated_resources.length > 0 && (
                       <div className="pl-9 space-y-2">
                         <div className="text-xs font-bold uppercase tracking-wider text-soft-muted flex items-center gap-1.5">
                           <BookOpen className="w-3.5 h-3.5" />
-                          <span>Curated Study Material</span>
+                          <span>Curated Authoritative Material</span>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {m.curated_resources.map((res, rIdx) => (
@@ -449,18 +525,104 @@ export default function LearningPage() {
                       </div>
                     )}
 
+                    {/* Practical Drills */}
+                    {m.practical_exercises && m.practical_exercises.length > 0 && (
+                      <div className="pl-9 space-y-1.5">
+                        <span className="text-[10px] font-bold uppercase text-soft-muted tracking-wider block">
+                          Hands-On Drills
+                        </span>
+                        <div className="space-y-1">
+                          {m.practical_exercises.map((ex, exIdx) => (
+                            <div key={exIdx} className="well p-2 rounded-lg text-xs text-slate-700">
+                              {ex}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Practical Portfolio Project Brief */}
                     {m.practical_project_brief && (
-                      <div className="pl-9">
-                        <div className="well p-4 rounded-xl border-l-4 border-indigo-500 space-y-1.5">
-                          <div className="flex items-center gap-2 text-indigo-700 font-bold text-xs uppercase tracking-wider">
-                            <FolderGit2 className="w-4 h-4 text-indigo-600" />
-                            <span>Practical Portfolio Project Brief</span>
+                      <div className="pl-9 space-y-2">
+                        <div className="well p-4 rounded-xl border-l-4 border-indigo-500 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-indigo-700 font-bold text-xs uppercase tracking-wider">
+                              <FolderGit2 className="w-4 h-4 text-indigo-600" />
+                              <span>Practical Portfolio Deliverable Brief</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-500">
+                              ~{m.estimated_hours || 15} Hours
+                            </span>
                           </div>
                           <p className="text-xs text-soft-text leading-relaxed font-medium">
                             {m.practical_project_brief}
                           </p>
+
+                          {m.expected_deliverables && m.expected_deliverables.length > 0 && (
+                            <div className="pt-1 border-t border-slate-200/50 space-y-0.5">
+                              <span className="text-[10px] font-bold uppercase text-indigo-700">Deliverables</span>
+                              <ul className="list-disc pl-4 text-[11px] text-slate-600">
+                                {m.expected_deliverables.map((del, dIdx) => (
+                                  <li key={dIdx}>{del}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {m.verification_criteria && m.verification_criteria.length > 0 && (
+                            <div className="pt-1 border-t border-slate-200/50 space-y-0.5">
+                              <span className="text-[10px] font-bold uppercase text-emerald-700">Verification Criteria</span>
+                              <ul className="list-disc pl-4 text-[11px] text-slate-600">
+                                {m.verification_criteria.map((crit, cIdx) => (
+                                  <li key={cIdx}>{crit}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
                         </div>
+
+                        {/* Completed Evidence Record or Action Button */}
+                        {m.evidence_verified && m.completed_evidence ? (
+                          <div className="surface p-3.5 rounded-xl border border-emerald-300 bg-emerald-50/20 space-y-1.5 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-emerald-800 flex items-center gap-1.5">
+                                <Award className="w-4 h-4 text-emerald-600" />
+                                Verified Deliverable & Synchronized Competency
+                              </span>
+                              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                Synced to Profile
+                              </span>
+                            </div>
+                            <p className="text-slate-700">{m.completed_evidence.evidence_text}</p>
+                            {m.completed_evidence.github_url && (
+                              <a
+                                href={m.completed_evidence.github_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-soft-blue hover:underline flex items-center gap-1 font-semibold"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                Repository: {m.completed_evidence.github_url}
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex justify-end pt-1">
+                            <button
+                              onClick={() => {
+                                setEvidenceMilestone(m);
+                                setEvidenceText("");
+                                setEvidenceGithub("");
+                                setEvidenceDemo("");
+                                setEvidenceTests("");
+                              }}
+                              className="btn-primary px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Award className="w-3.5 h-3.5" />
+                              Submit Deliverable & Verify Skill
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -546,6 +708,117 @@ export default function LearningPage() {
                       <span>Generate Roadmap</span>
                     </>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Submit Evidence Modal */}
+      {evidenceMilestone && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="surface p-6 rounded-2xl max-w-lg w-full space-y-4 animate-in fade-in zoom-in-95 border border-white/80 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg well text-emerald-600">
+                  <Award className="w-5 h-5 text-emerald-600" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-soft-text">
+                    Submit Deliverable & Verify Competency
+                  </h3>
+                  <p className="text-xs text-soft-muted">
+                    {evidenceMilestone.skill_name} • Step {evidenceMilestone.sequence_order}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEvidenceMilestone(null)}
+                className="text-slate-400 hover:text-slate-600 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="well p-3 rounded-xl text-xs text-slate-700 space-y-1">
+              <span className="text-[10px] font-bold uppercase text-soft-muted">Expected Project Brief</span>
+              <p className="italic">{evidenceMilestone.practical_project_brief}</p>
+            </div>
+
+            <form onSubmit={handleSubmitEvidence} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
+                  Deliverable Summary & Outcomes *
+                </label>
+                <textarea
+                  rows={3}
+                  value={evidenceText}
+                  onChange={(e) => setEvidenceText(e.target.value)}
+                  placeholder="Describe your implementation, architecture, and outcomes verifying this skill..."
+                  className="w-full text-xs rounded-xl well border border-white/60 p-3 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue resize-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
+                  GitHub Repository URL (Optional)
+                </label>
+                <input
+                  type="url"
+                  value={evidenceGithub}
+                  onChange={(e) => setEvidenceGithub(e.target.value)}
+                  placeholder="https://github.com/username/project"
+                  className="w-full text-xs rounded-xl well border border-white/60 p-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
+                    Live Demo Link
+                  </label>
+                  <input
+                    type="url"
+                    value={evidenceDemo}
+                    onChange={(e) => setEvidenceDemo(e.target.value)}
+                    placeholder="https://demo.app"
+                    className="w-full text-xs rounded-xl well border border-white/60 p-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-soft-muted uppercase mb-1">
+                    Test Assertions
+                  </label>
+                  <input
+                    type="text"
+                    value={evidenceTests}
+                    onChange={(e) => setEvidenceTests(e.target.value)}
+                    placeholder="100% test coverage"
+                    className="w-full text-xs rounded-xl well border border-white/60 p-2.5 text-soft-text focus:outline-none focus:ring-2 focus:ring-soft-blue"
+                  />
+                </div>
+              </div>
+
+              <p className="text-[10px] text-soft-muted">
+                Submitting this deliverable marks this milestone completed and synchronizes the verified competency to your Master Candidate Profile.
+              </p>
+
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEvidenceMilestone(null)}
+                  className="btn-soft text-xs py-2 px-4 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingEvidence || !evidenceText.trim()}
+                  className="btn-primary text-xs py-2 px-4 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {submittingEvidence ? "Verifying..." : "Submit & Sync to Profile"}
                 </button>
               </div>
             </form>

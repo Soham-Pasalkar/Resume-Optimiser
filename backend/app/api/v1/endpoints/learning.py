@@ -12,6 +12,7 @@ from app.schemas.learning import (
     LearningMilestoneResponse,
     LearningRoadmapResponse,
     LearningRoadmapSummaryResponse,
+    SubmitEvidenceRequest,
     UpdateMilestoneRequest,
 )
 
@@ -104,6 +105,34 @@ async def toggle_milestone(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update milestone: {e!s}",
+        ) from e
+
+
+@router.post(
+    "/milestones/{milestone_id}/evidence",
+    response_model=LearningMilestoneResponse,
+    summary="Submit completed project evidence and verify milestone",
+)
+async def submit_milestone_evidence(
+    milestone_id: uuid.UUID,
+    payload: SubmitEvidenceRequest,
+    current_user_id: Annotated[uuid.UUID, Depends(get_current_user_id)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> LearningMilestoneResponse:
+    try:
+        milestone = await learning_service.submit_milestone_evidence(
+            db=db,
+            user_id=current_user_id,
+            milestone_id=milestone_id,
+            evidence=payload.model_dump(),
+        )
+        return LearningMilestoneResponse.model_validate(milestone)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to submit evidence: {e!s}",
         ) from e
 
 

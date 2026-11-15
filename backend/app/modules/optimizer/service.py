@@ -13,6 +13,7 @@ from app.models.resume import Resume, ResumeSection
 from app.models.user import User
 from app.modules.candidate.service import candidate_service
 from app.modules.matching.dense import dense_matcher
+from app.modules.optimizer.ats_scorer import ats_evaluator
 from app.modules.optimizer.composer import resume_composer
 from app.modules.optimizer.exporter import resume_exporter
 from app.modules.optimizer.intelligence import content_intelligence
@@ -247,6 +248,16 @@ class OptimizerService:
         synced["missing_requirements"] = missing_reqs
         synced["content_decisions"] = content_decisions
         synced["intel_summary"] = intel_results.get("summary", {})
+        synced["four_tier_breakdown"] = intel_results.get("four_tier_breakdown", {})
+        synced["role_summary"] = intel_results.get("role_summary", "")
+
+        # Compute initial ATS metrics
+        ats_comp = ats_evaluator.evaluate_job_compatibility(synced, jd, req_mappings)
+        ats_read = ats_evaluator.evaluate_ats_readability(synced)
+        synced["ats_analysis"] = {
+            "job_compatibility": ats_comp,
+            "ats_readability": ats_read,
+        }
 
         tailored.tailored_content = synced
         flag_modified(tailored, "tailored_content")
@@ -329,6 +340,9 @@ class OptimizerService:
             "missing_requirements": tailored.tailored_content.get("missing_requirements", []),
             "content_decisions": tailored.tailored_content.get("content_decisions", []),
             "intel_summary": tailored.tailored_content.get("intel_summary", {}),
+            "four_tier_breakdown": tailored.tailored_content.get("four_tier_breakdown", {}),
+            "role_summary": tailored.tailored_content.get("role_summary", ""),
+            "ats_analysis": tailored.tailored_content.get("ats_analysis", {}),
         }
 
         synced = resume_composer.sync_tailored_content_snapshot(tailored, tailored.diffs)
@@ -384,11 +398,135 @@ class OptimizerService:
 
         synced = resume_composer.sync_tailored_content_snapshot(tailored, tailored.diffs)
         # Preserve intelligence metadata
-        for k in ["requirement_mappings", "missing_requirements", "content_decisions", "intel_summary"]:
+        for k in [
+            "requirement_mappings",
+            "missing_requirements",
+            "content_decisions",
+            "intel_summary",
+            "four_tier_breakdown",
+            "role_summary",
+            "ats_analysis",
+        ]:
             if k in content:
                 synced[k] = content[k]
 
         tailored.tailored_content = synced
+        flag_modified(tailored, "tailored_content")
+
+        await db.commit()
+        await db.refresh(tailored)
+        return tailored
+
+    async def get_ats_analysis(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        tailored_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Compute full ATS compatibility and readability audit with actual PDF byte extraction."""
+        tailored = await self.get_tailored_resume(db, user_id, tailored_id)
+        if not tailored:
+            raise ValueError("Tailored resume not found.")
+
+        content = tailored.tailored_content or {}
+        jd = tailored.target_jd
+        if not jd:
+            raise ValueError("Target job description not found.")
+
+        # Generate live PDF bytes to run byte-level verification
+        pdf_bytes = resume_exporter.generate_pdf(content)
+        comp = ats_evaluator.evaluate_job_compatibility(
+            tailored_content=content,
+            jd=jd,
+            requirement_mappings=content.get("requirement_mappings", []),
+        )
+        read = ats_evaluator.evaluate_ats_readability(
+            tailored_content=content,
+            document_bytes=pdf_bytes,
+            file_format="pdf",
+        )
+        return {
+            "job_compatibility": comp,
+            "ats_readability": read,
+        }
+
+    async def add_custom_evidence(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        tailored_id: uuid.UUID,
+        requirement_id: uuid.UUID,
+        evidence_text: str,
+        section_name: str = "Master Profile Evidence",
+        match_category: str = "DEMONSTRATED",
+    ) -> TailoredResume:
+        """Manually attach candidate-verified evidence to a requirement, upgrading its tier."""
+        tailored = await self.get_tailored_resume(db, user_id, tailored_id)
+        if not tailored:
+            raise ValueError("Tailored resume not found.")
+
+        content = copy.deepcopy(tailored.tailored_content or {})
+        req_mappings = content.get("requirement_mappings", [])
+        missing_reqs = content.get("missing_requirements", [])
+        four_tier = content.get("four_tier_breakdown", {})
+
+        req_str = str(requirement_id)
+        target_req = next((r for r in tailored.target_jd.requirements if str(r.id) == req_str), None)
+        if not target_req:
+            raise ValueError("Target requirement not found in job description.")
+
+        # Remove from missing requirements list
+        content["missing_requirements"] = [m for m in missing_reqs if m.get("requirement_id") != req_str]
+
+        # Update or create mapping
+        found_mapping = next((m for m in req_mappings if m.get("requirement_id") == req_str), None)
+        if found_mapping:
+            found_mapping["match_category"] = match_category
+            found_mapping["original_evidence_text"] = evidence_text
+            found_mapping["explanation"] = f"Candidate verified evidence: {evidence_text}"
+            found_mapping["confidence_score"] = 0.95
+            found_mapping["verification_status"] = "CANDIDATE_VERIFIED"
+            found_mapping["requires_human_verification"] = False
+        else:
+            new_mapping = {
+                "requirement_id": req_str,
+                "requirement_text": target_req.requirement_text,
+                "is_mandatory": target_req.is_mandatory,
+                "canonical_skill_name": target_req.canonical_skill_name,
+                "category": target_req.category,
+                "matched_section_id": None,
+                "matched_section_name": section_name,
+                "matched_item_id": None,
+                "matched_bullet_index": None,
+                "original_evidence_text": evidence_text,
+                "matching_method": "CANDIDATE_VERIFIED_INPUT",
+                "confidence_score": 0.95,
+                "verification_status": "CANDIDATE_VERIFIED",
+                "match_category": match_category,
+                "explanation": f"Candidate verified evidence: {evidence_text}",
+                "requires_human_verification": False,
+                "suggested_action": None,
+            }
+            req_mappings.append(new_mapping)
+
+        content["requirement_mappings"] = req_mappings
+
+        # Re-partition four_tier_breakdown
+        four_tier["DEMONSTRATED"] = [m for m in req_mappings if m.get("match_category") == "DEMONSTRATED"]
+        four_tier["TRANSFERABLE"] = [m for m in req_mappings if m.get("match_category") == "TRANSFERABLE"]
+        four_tier["PROFILE_LISTED"] = [m for m in req_mappings if m.get("match_category") == "PROFILE_LISTED"]
+        four_tier["MISSING"] = content["missing_requirements"]
+        content["four_tier_breakdown"] = four_tier
+
+        # Recompute ATS analysis
+        comp = ats_evaluator.evaluate_job_compatibility(content, tailored.target_jd, req_mappings)
+        read = ats_evaluator.evaluate_ats_readability(content)
+        content["ats_analysis"] = {
+            "job_compatibility": comp,
+            "ats_readability": read,
+        }
+
+        tailored.tailored_content = content
         flag_modified(tailored, "tailored_content")
 
         await db.commit()

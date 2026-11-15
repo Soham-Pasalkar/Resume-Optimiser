@@ -24,6 +24,15 @@ class LearningMilestoneResponse(BaseModel):
     description: str
     curated_resources: list[dict[str, Any]] = Field(default_factory=list)
     practical_project_brief: str | None = None
+    why_it_matters: str | None = None
+    prerequisites: list[str] = Field(default_factory=list)
+    learning_objectives: list[str] = Field(default_factory=list)
+    practical_exercises: list[str] = Field(default_factory=list)
+    expected_deliverables: list[str] = Field(default_factory=list)
+    verification_criteria: list[str] = Field(default_factory=list)
+    estimated_hours: int = 10
+    completed_evidence: dict[str, Any] | None = None
+    evidence_verified: bool = False
     is_completed: bool = False
     created_at: datetime
 
@@ -33,6 +42,13 @@ class LearningMilestoneResponse(BaseModel):
 
 class UpdateMilestoneRequest(BaseModel):
     is_completed: bool
+
+
+class SubmitEvidenceRequest(BaseModel):
+    evidence_text: str = Field(..., min_length=5, description="Factual description of completed deliverable or project findings")
+    github_url: str | None = None
+    demo_url: str | None = None
+    test_results: str | None = None
 
 
 class LearningRoadmapResponse(BaseModel):

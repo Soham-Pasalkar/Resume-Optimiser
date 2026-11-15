@@ -50,6 +50,66 @@ class RequirementEvidenceMappingResponse(BaseModel):
     matching_method: str = "UNMATCHED"
     confidence_score: float = 0.0
     verification_status: str = "UNMATCHED"
+    match_category: str = "MISSING"
+    explanation: str = ""
+    requires_human_verification: bool = False
+    suggested_action: str | None = None
+
+
+class JobCompatibilityBreakdownResponse(BaseModel):
+    mandatory_score: float
+    preferred_score: float
+    transferable_score: float
+    profile_score: float
+    depth_score: float
+
+
+class TierCountsResponse(BaseModel):
+    demonstrated: int
+    transferable: int
+    profile_listed: int
+    missing: int
+    total: int
+
+
+class JobCompatibilityResponse(BaseModel):
+    score: float
+    breakdown: JobCompatibilityBreakdownResponse
+    tier_counts: TierCountsResponse
+    strengths: list[str] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    disclaimer: str
+
+
+class ATSReadabilityBreakdownResponse(BaseModel):
+    standard_headings: float
+    contact_completeness: float
+    document_structure: float
+    date_consistency: float
+    bullet_clarity: float
+    text_extraction_validation: float
+
+
+class ATSReadabilityResponse(BaseModel):
+    score: float
+    breakdown: ATSReadabilityBreakdownResponse
+    extracted_character_count: int
+    page_count: int
+    findings: list[str] = Field(default_factory=list)
+    disclaimer: str
+
+
+class ATSAnalysisResponse(BaseModel):
+    job_compatibility: JobCompatibilityResponse
+    ats_readability: ATSReadabilityResponse
+
+
+class CustomEvidenceRequest(BaseModel):
+    requirement_id: uuid.UUID
+    evidence_text: str = Field(..., min_length=5, description="Factual candidate evidence supporting this requirement")
+    section_name: str = "Master Profile Evidence"
+    match_category: str = Field(default="DEMONSTRATED", description="DEMONSTRATED or TRANSFERABLE")
 
 
 class MissingRequirementResponse(BaseModel):

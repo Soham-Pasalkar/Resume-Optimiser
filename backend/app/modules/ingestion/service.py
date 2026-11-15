@@ -116,6 +116,10 @@ class IngestionService:
                     item_type=item_data["item_type"],
                     title=item_data["title"],
                     organization=item_data.get("organization"),
+                    location=item_data.get("location"),
+                    start_date=item_data.get("start_date"),
+                    end_date=item_data.get("end_date"),
+                    is_current=item_data.get("is_current", False),
                     bullets=item_data.get("bullets", []),
                 )
                 self.db.add(item)

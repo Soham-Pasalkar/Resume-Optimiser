@@ -24,6 +24,16 @@ def sanitize_text_for_reportlab(text: str) -> str:
     return s.strip()
 
 
+def add_page_number(canvas, doc):
+    """Draw professional page numbering on all pages."""
+    page_num = canvas.getPageNumber()
+    canvas.saveState()
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColor(HexColor("#9CA3AF"))
+    canvas.drawRightString(doc.pagesize[0] - 40, 20, f"Page {page_num}")
+    canvas.restoreState()
+
+
 class ResumeExporter:
     """Generates ATS-compliant, single-column PDF and DOCX documents with robust formatting,
     multiline wrapping, orphan header prevention, and pre-export validation.
@@ -175,12 +185,23 @@ class ResumeExporter:
                 if sub_line:
                     story.append(Paragraph(sub_line, item_sub_style))
 
-                # Bullets
+                # Bullets & Descriptive Content
+                has_bullets = False
                 for bullet in item.get("bullets", []):
                     bullet_text = bullet if isinstance(bullet, str) else str(bullet)
                     sanitized_b = sanitize_text_for_reportlab(bullet_text)
                     if sanitized_b:
                         story.append(Paragraph(f"• {sanitized_b}", bullet_style))
+                        has_bullets = True
+
+                # If no bullets, render description / text lines
+                if not has_bullets:
+                    desc = item.get("description") or item.get("text") or ""
+                    if desc:
+                        sanitized_desc = sanitize_text_for_reportlab(desc)
+                        for line in sanitized_desc.splitlines():
+                            if line.strip():
+                                story.append(Paragraph(line.strip(), bullet_style))
 
                 story.append(Spacer(1, 4))
 
@@ -192,7 +213,7 @@ class ResumeExporter:
                         story.append(Paragraph(line.strip(), bullet_style))
                 story.append(Spacer(1, 4))
 
-        doc.build(story)
+        doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
         buffer.seek(0)
         return buffer.getvalue()
 
@@ -278,7 +299,8 @@ class ResumeExporter:
                     r_sub.font.italic = True
                     r_sub.font.color.rgb = RGBColor(75, 85, 99)
 
-                # Bullets
+                # Bullets & Description
+                has_bullets = False
                 for bullet in item.get("bullets", []):
                     bullet_text = bullet if isinstance(bullet, str) else str(bullet)
                     if bullet_text.strip():
@@ -287,6 +309,18 @@ class ResumeExporter:
                         r_b = p_b.add_run(bullet_text.strip())
                         r_b.font.name = "Arial"
                         r_b.font.size = Pt(9)
+                        has_bullets = True
+
+                if not has_bullets:
+                    desc = item.get("description") or item.get("text") or ""
+                    if desc:
+                        for line in desc.splitlines():
+                            if line.strip():
+                                p_d = doc.add_paragraph()
+                                p_d.paragraph_format.space_after = Pt(2)
+                                r_d = p_d.add_run(line.strip())
+                                r_d.font.name = "Arial"
+                                r_d.font.size = Pt(9)
 
             if not section.get("items") and section.get("raw_content"):
                 p_raw = doc.add_paragraph()
